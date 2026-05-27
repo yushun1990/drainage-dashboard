@@ -1,0 +1,16 @@
+#+title: Architecture
+* 技术栈
+React
+Vite
+TypeScript
+Tailwind
+MapLibre GL JS
+ECharts
+
+* 数据来源
+全部使用 mock 数据, 数据在单独文件存储，通过更换数据内容变更地图、管线等展示
+
+* 动画规范
+- 告警闪烁
+- 水流方向动画
+- 区域高亮
