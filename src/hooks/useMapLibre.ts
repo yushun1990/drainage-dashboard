@@ -1,0 +1,1334 @@
+import { useEffect, useMemo, useRef } from 'react'
+import maplibregl from 'maplibre-gl'
+import type { FeatureCollection, Polygon } from 'geojson'
+import type { MutableRefObject, RefObject } from 'react'
+import type {
+  ExpressionSpecification,
+  FillExtrusionLayerSpecification,
+  LngLatBoundsLike,
+} from 'maplibre-gl'
+import type {
+  Coordinate,
+  DrainageMapDataset,
+  DrainageMapPoint,
+} from '../types/drainage'
+import { buildDrainageGeoJson } from '../utils/buildDrainageGeoJson'
+import type { DistrictData } from '../utils/districtUtils'
+
+interface UseMapLibreOptions {
+  containerRef: RefObject<HTMLDivElement | null>
+  dataset: DrainageMapDataset
+  interactive?: boolean
+  districtAreas?: FeatureCollection
+}
+
+interface MutableGeoJsonSource {
+  setData: (data: FeatureCollection) => void
+}
+
+const pipeSourceId = 'drainage-pipes'
+const pipeFlowLayerId = 'pipe-flow'
+const pointSourceId = 'drainage-points'
+const riskAreaSourceId = 'drainage-risk-areas'
+const districtSourceId = 'district-areas'
+const siltationSourceId = 'siltation-area'
+const siltationLayerId = 'siltation-blink'
+const inflowInfiltrationSourceId = 'inflow-infiltration-area'
+const inflowInfiltrationLayerId = 'inflow-infiltration-blink'
+const waterwaySourceId = 'fenkou-waterways'
+const fenkouFocusSourceId = 'fenkou-focus'
+const fenkouMaskSourceId = 'fenkou-mask'
+const tiandituVectorSourceId = 'tianditu-vector-raster'
+const tiandituVectorLayerId = 'tianditu-vector-raster'
+const tiandituLabelSourceId = 'tianditu-label-raster'
+const tiandituLabelLayerId = 'tianditu-label-raster'
+const initialZoom = 14
+const pointMinZoom = 16.01
+const mapPitch = 58
+const mapBearing = 0
+const fiordStyleUrl = 'https://tiles.openfreemap.org/styles/fiord'
+const tiandituMinZoom = 14
+const tiandituToken = '5ce9baeca773fde9739ec866f9e117f3'
+const siteMarkerMinScale = 0.46
+const siteMarkerMaxScale = 1
+const siteMarkerMinScaleZoom = 13
+const siteMarkerMaxScaleZoom = 16
+const siteMarkerMinVisibleZoom = 14.3
+const siteMarkerShowAllZoom = 15.3
+const pipeFlowDurationMs = 2600
+const blinkDurationMs = 2000
+
+const fenkouMaxBounds: LngLatBoundsLike = [
+  [118.4086, 29.2906],
+  [118.7286, 29.5628],
+]
+
+function isMutableGeoJsonSource(source: unknown): source is MutableGeoJsonSource {
+  if (typeof source !== 'object' || source === null || !('setData' in source)) {
+    return false
+  }
+
+  return typeof (source as { setData?: unknown }).setData === 'function'
+}
+
+function updateGeoJsonSource(
+  map: maplibregl.Map,
+  sourceId: string,
+  data: FeatureCollection,
+) {
+  const source = map.getSource(sourceId)
+
+  if (isMutableGeoJsonSource(source)) {
+    source.setData(data)
+  }
+}
+
+function hasSiteIcon(point: DrainageMapPoint): boolean {
+  return Boolean(point.normalIconUrl && point.alarmIconUrl)
+}
+
+function buildSiteMarkerElement(point: DrainageMapPoint): HTMLElement {
+  const marker = document.createElement('button')
+  marker.type = 'button'
+  marker.className = 'site-map-marker h-9 w-9'
+  marker.setAttribute('aria-label', point.name)
+
+  const shell = document.createElement('span')
+  shell.className =
+    'site-map-marker-shell flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-cyan-100/65 bg-slate-950/30 shadow-[0_0_14px_rgba(34,211,238,0.52)] backdrop-blur-sm'
+
+  const image = document.createElement('img')
+  image.src =
+    point.status === 'critical' && point.alarmIconUrl
+      ? point.alarmIconUrl
+      : point.normalIconUrl ?? ''
+  image.alt = ''
+  image.className = 'h-8 w-8 scale-125 object-contain'
+  image.draggable = false
+
+  if (point.status === 'critical') {
+    shell.classList.add('site-map-marker-alarm')
+  }
+
+  shell.append(image)
+  marker.append(shell)
+
+  return marker
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function buildSiteMarkerScale(zoom: number): number {
+  const progress =
+    (zoom - siteMarkerMinScaleZoom) /
+    (siteMarkerMaxScaleZoom - siteMarkerMinScaleZoom)
+
+  return (
+    siteMarkerMinScale +
+    clamp(progress, 0, 1) * (siteMarkerMaxScale - siteMarkerMinScale)
+  )
+}
+
+function updateSiteMarkerScale(
+  map: maplibregl.Map,
+  markers: maplibregl.Marker[],
+) {
+  const zoom = map.getZoom()
+  const isVisible = zoom >= siteMarkerMinVisibleZoom
+  const shouldShowAll = zoom >= siteMarkerShowAllZoom
+  const scale = buildSiteMarkerScale(map.getZoom())
+
+  for (const marker of markers) {
+    const element = marker.getElement()
+    element.style.setProperty('--site-marker-scale', String(scale))
+    const isAlarm = element.dataset.siteStatus === 'critical'
+    element.style.display = isAlarm || (isVisible && shouldShowAll) ? 'block' : 'none'
+  }
+}
+
+function buildSitePopupContent(point: DrainageMapPoint): HTMLElement {
+  const wrapper = document.createElement('div')
+  wrapper.className = 'min-w-[200px] text-cyan-50'
+
+  // Header
+  const header = document.createElement('div')
+  header.className = 'px-4 py-2 border-b border-cyan-500/20 bg-cyan-950/95'
+
+  const title = document.createElement('h3')
+  title.className = 'text-sm font-medium text-white'
+  title.textContent = point.name
+
+  header.append(title)
+
+  // Body
+  const body = document.createElement('div')
+  body.className = 'p-4 space-y-2 bg-cyan-500/20'
+
+  const idItem = createInfoItem('编号', point.id.replace(/^site-/, ''))
+  const addressItem = createInfoItem('地址', point.address || '暂无')
+  const deviceItem = createInfoItem(
+    '设备',
+    point.deviceIds && point.deviceIds.length > 0 ? point.deviceIds.join('、') : '暂无',
+  )
+
+  body.append(idItem, addressItem, deviceItem)
+  wrapper.append(header, body)
+
+  return wrapper
+}
+
+function createInfoItem(label: string, value: string): HTMLElement {
+  const item = document.createElement('div')
+  item.className = 'flex items-center gap-2'
+
+  const labelSpan = document.createElement('span')
+  labelSpan.className = 'text-xs text-cyan-300/90 shrink-0'
+  labelSpan.textContent = `${label}：`
+
+  const valueSpan = document.createElement('span')
+  valueSpan.className = 'text-xs text-cyan-100/80 truncate'
+  valueSpan.textContent = value
+
+  item.append(labelSpan, valueSpan)
+  return item
+}
+
+function buildDistrictPopupContent(district: DistrictData): HTMLElement {
+  const wrapper = document.createElement('div')
+  wrapper.className = 'min-w-[200px] text-cyan-50'
+
+  // Header
+  const header = document.createElement('div')
+  header.className = 'px-4 py-2 border-b border-cyan-500/20 bg-cyan-950/95'
+
+  const title = document.createElement('h3')
+  title.className = 'text-sm font-medium text-white'
+  title.textContent = district.name
+
+  header.append(title)
+
+  // Body
+  const body = document.createElement('div')
+  body.className = 'p-4 space-y-2 bg-cyan-500/20'
+
+  const idItem = createInfoItem('编号', district.id)
+
+  const systemValue = district.sewageSystem === 'SEPARATE_SYSTEM' ? '分流制' : '合流制'
+  const systemItem = createInfoItem('排水系统', systemValue)
+
+  let statusValue = '正常'
+  let statusColor = 'text-emerald-400'
+  if (district.status === 'warning') {
+    statusValue = '警告'
+    statusColor = 'text-amber-400'
+  } else if (district.status === 'critical') {
+    statusValue = '异常'
+    statusColor = 'text-red-400'
+  }
+
+  const statusItem = document.createElement('div')
+  statusItem.className = 'flex items-center gap-2'
+
+  const statusLabel = document.createElement('span')
+  statusLabel.className = 'text-xs text-cyan-300/90 shrink-0'
+  statusLabel.textContent = '状态：'
+
+  const statusValueSpan = document.createElement('span')
+  statusValueSpan.className = `text-xs ${statusColor}`
+  statusValueSpan.textContent = statusValue
+
+  statusItem.append(statusLabel, statusValueSpan)
+
+  body.append(idItem, systemItem, statusItem)
+  wrapper.append(header, body)
+
+  return wrapper
+}
+
+function addMonitoringSiteMarkers(
+  map: maplibregl.Map,
+  points: DrainageMapPoint[],
+  activePopupRef: MutableRefObject<maplibregl.Popup | null>,
+  closeOtherPopups?: () => void,
+): maplibregl.Marker[] {
+  return points.filter(hasSiteIcon).map((point) => {
+    const element = buildSiteMarkerElement(point)
+    element.dataset.siteStatus = point.status
+    const marker = new maplibregl.Marker({
+      element,
+      anchor: 'bottom',
+      offset: [0, -6],
+    })
+      .setLngLat(point.coordinate)
+      .addTo(map)
+
+    element.style.setProperty('--site-marker-scale', String(buildSiteMarkerScale(map.getZoom())))
+    updateSiteMarkerScale(map, [marker])
+
+    element.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      activePopupRef.current?.remove()
+      closeOtherPopups?.()
+
+      const popup = new maplibregl.Popup({
+        anchor: 'bottom',
+        closeButton: true,
+        closeOnClick: true,
+        focusAfterOpen: false,
+        maxWidth: '240px',
+        offset: 18,
+        className: 'drainage-site-popup',
+      })
+        .setLngLat(point.coordinate)
+        .setDOMContent(buildSitePopupContent(point))
+        .addTo(map)
+
+      activePopupRef.current = popup
+    })
+
+    return marker
+  })
+}
+
+function buildPipeFlowGradient(phase: number): ExpressionSpecification {
+  const base = 'rgba(8, 145, 178, 0)'
+  const tail = 'rgba(6, 182, 212, 0.45)'
+  const core = 'rgba(236, 254, 255, 1)'
+  const stops = [
+    { progress: 0, color: base },
+    { progress: 1, color: base },
+  ]
+
+  for (const offset of [-1, 0, 1]) {
+    const center = phase + offset
+
+    for (const stop of [
+      { progress: center - 0.14, color: base },
+      { progress: center - 0.06, color: tail },
+      { progress: center, color: core },
+      { progress: center + 0.06, color: tail },
+      { progress: center + 0.14, color: base },
+    ]) {
+      if (stop.progress > 0 && stop.progress < 1) {
+        stops.push(stop)
+      }
+    }
+  }
+
+  return [
+    'interpolate',
+    ['linear'],
+    ['line-progress'],
+    ...stops
+      .sort((left, right) => left.progress - right.progress)
+      .flatMap((stop) => [stop.progress, stop.color]),
+  ] as ExpressionSpecification
+}
+
+function buildFocusPolygon(boundary: Coordinate[]): FeatureCollection<Polygon> {
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [boundary],
+        },
+      },
+    ],
+  }
+}
+
+function buildOutsideMask(boundary: Coordinate[]): FeatureCollection<Polygon> {
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [116.8, 28.2],
+              [120.2, 28.2],
+              [120.2, 30.6],
+              [116.8, 30.6],
+              [116.8, 28.2],
+            ],
+            boundary.toReversed(),
+          ],
+        },
+      },
+    ],
+  }
+}
+
+function addFenkouFocusLayers(map: maplibregl.Map, boundary: Coordinate[]) {
+  map.addSource(fenkouMaskSourceId, {
+    type: 'geojson',
+    data: buildOutsideMask(boundary),
+  })
+  map.addSource(fenkouFocusSourceId, {
+    type: 'geojson',
+    data: buildFocusPolygon(boundary),
+  })
+
+  map.addLayer({
+    id: 'fenkou-outside-mask',
+    type: 'fill',
+    source: fenkouMaskSourceId,
+    paint: {
+      'fill-color': '#06111f',
+      'fill-opacity': 0.58,
+    },
+  })
+
+  map.addLayer({
+    id: 'fenkou-focus-wall',
+    type: 'fill-extrusion',
+    source: fenkouFocusSourceId,
+    paint: {
+      'fill-extrusion-color': '#00e5ff',
+      'fill-extrusion-height': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13,
+        24,
+        16,
+        76,
+      ],
+      'fill-extrusion-base': 0,
+      'fill-extrusion-opacity': 0.24,
+    },
+  })
+
+  map.addLayer({
+    id: 'fenkou-focus-outline-halo',
+    type: 'line',
+    source: fenkouFocusSourceId,
+    paint: {
+      'line-color': '#00f5ff',
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13,
+        18,
+        16,
+        30,
+      ],
+      'line-opacity': 0.46,
+      'line-blur': 8,
+    },
+  })
+
+  map.addLayer({
+    id: 'fenkou-focus-outline-glow',
+    type: 'line',
+    source: fenkouFocusSourceId,
+    paint: {
+      'line-color': '#22d3ee',
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13,
+        7,
+        16,
+        12,
+      ],
+      'line-opacity': 0.9,
+      'line-blur': 2.2,
+    },
+  })
+
+  map.addLayer({
+    id: 'fenkou-focus-outline',
+    type: 'line',
+    source: fenkouFocusSourceId,
+    paint: {
+      'line-color': '#ecfeff',
+      'line-width': 2.2,
+      'line-opacity': 1,
+    },
+  })
+}
+
+function addWaterwayLayers(
+  map: maplibregl.Map,
+  dataset: ReturnType<typeof buildDrainageGeoJson>,
+) {
+  map.addSource(waterwaySourceId, {
+    type: 'geojson',
+    data: dataset.waterways,
+  })
+
+  map.addLayer({
+    id: 'waterway-glow',
+    type: 'line',
+    source: waterwaySourceId,
+    paint: {
+      'line-color': '#38bdf8',
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        10,
+        7,
+        15,
+        15,
+      ],
+      'line-opacity': 0.3,
+      'line-blur': 5,
+    },
+  })
+
+  map.addLayer({
+    id: 'waterway-core',
+    type: 'line',
+    source: waterwaySourceId,
+    paint: {
+      'line-color': '#0ea5e9',
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        10,
+        2.2,
+        15,
+        6,
+      ],
+      'line-opacity': 0.82,
+    },
+  })
+}
+
+function findVectorSourceId(map: maplibregl.Map): string | undefined {
+  return Object.entries(map.getStyle().sources).find(
+    ([, source]) => source.type === 'vector',
+  )?.[0]
+}
+
+function findFirstSymbolLayerId(map: maplibregl.Map): string | undefined {
+  return map.getStyle().layers.find((layer) => layer.type === 'symbol')?.id
+}
+
+function buildTiandituWmtsUrl(layer: 'vec' | 'cva'): string {
+  return `https://t0.tianditu.gov.cn/${layer}_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layer}&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tiandituToken}`
+}
+
+function addTiandituDetailLayers(map: maplibregl.Map) {
+  if (
+    map.getSource(tiandituVectorSourceId) ||
+    map.getLayer(tiandituVectorLayerId)
+  ) {
+    return
+  }
+
+  map.addSource(tiandituVectorSourceId, {
+    type: 'raster',
+    tiles: [buildTiandituWmtsUrl('vec')],
+    tileSize: 256,
+    minzoom: tiandituMinZoom,
+    maxzoom: 18,
+    attribution: '© 天地图',
+  })
+  map.addSource(tiandituLabelSourceId, {
+    type: 'raster',
+    tiles: [buildTiandituWmtsUrl('cva')],
+    tileSize: 256,
+    minzoom: tiandituMinZoom,
+    maxzoom: 18,
+    attribution: '© 天地图',
+  })
+
+  const beforeLayerId = findFirstSymbolLayerId(map)
+
+  map.addLayer(
+    {
+      id: tiandituVectorLayerId,
+      type: 'raster',
+      source: tiandituVectorSourceId,
+      minzoom: tiandituMinZoom,
+      paint: {
+        'raster-opacity': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          14,
+          0,
+          14.7,
+          0.34,
+          16,
+          0.48,
+          17,
+          0.56,
+        ],
+        'raster-saturation': -0.36,
+        'raster-contrast': -0.08,
+        'raster-brightness-min': 0.08,
+        'raster-brightness-max': 0.74,
+      },
+    },
+    beforeLayerId,
+  )
+  map.addLayer(
+    {
+      id: tiandituLabelLayerId,
+      type: 'raster',
+      source: tiandituLabelSourceId,
+      minzoom: tiandituMinZoom,
+      paint: {
+        'raster-opacity': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          14,
+          0,
+          14.7,
+          0.42,
+          16,
+          0.68,
+          17,
+          0.78,
+        ],
+        'raster-saturation': -0.2,
+        'raster-contrast': -0.05,
+        'raster-brightness-min': 0,
+        'raster-brightness-max': 0.86,
+      },
+    },
+    beforeLayerId,
+  )
+}
+
+function addBuildingExtrusionLayer(map: maplibregl.Map) {
+  const vectorSourceId = findVectorSourceId(map)
+
+  if (!vectorSourceId || map.getLayer('fenkou-building-extrusion')) {
+    return
+  }
+
+  const layer: FillExtrusionLayerSpecification = {
+    id: 'fenkou-building-extrusion',
+    type: 'fill-extrusion',
+    source: vectorSourceId,
+    'source-layer': 'building',
+    minzoom: 13.5,
+    paint: {
+      'fill-extrusion-color': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13.5,
+        '#24384d',
+        16,
+        '#74a9c8',
+      ],
+      'fill-extrusion-height': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13.5,
+        0,
+        15.5,
+        [
+          'coalesce',
+          ['to-number', ['get', 'render_height']],
+          ['to-number', ['get', 'height']],
+          ['*', ['to-number', ['get', 'building:levels']], 3],
+          18,
+        ],
+      ],
+      'fill-extrusion-base': [
+        'coalesce',
+        ['to-number', ['get', 'render_min_height']],
+        ['to-number', ['get', 'min_height']],
+        0,
+      ],
+      'fill-extrusion-opacity': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        13.5,
+        0.22,
+        16,
+        0.58,
+      ],
+    },
+  }
+
+  map.addLayer(layer, findFirstSymbolLayerId(map))
+}
+
+function addDrainageLayers(
+  map: maplibregl.Map,
+  dataset: ReturnType<typeof buildDrainageGeoJson>,
+) {
+  map.addSource(riskAreaSourceId, {
+    type: 'geojson',
+    data: dataset.riskAreas,
+  })
+  map.addSource(pipeSourceId, {
+    type: 'geojson',
+    data: dataset.pipes,
+    lineMetrics: true,
+  })
+  map.addSource(pointSourceId, {
+    type: 'geojson',
+    data: dataset.points,
+  })
+
+  map.addLayer({
+    id: 'risk-area-fill',
+    type: 'fill',
+    source: riskAreaSourceId,
+    paint: {
+      'fill-color': [
+        'match',
+        ['get', 'status'],
+        'critical',
+        '#ef4444',
+        'warning',
+        '#f59e0b',
+        '#38bdf8',
+      ],
+      'fill-opacity': [
+        'match',
+        ['get', 'status'],
+        'critical',
+        0.24,
+        'warning',
+        0.18,
+        0.12,
+      ],
+    },
+  })
+
+  map.addLayer({
+    id: 'risk-area-outline',
+    type: 'line',
+    source: riskAreaSourceId,
+    paint: {
+      'line-color': [
+        'match',
+        ['get', 'status'],
+        'critical',
+        '#fca5a5',
+        'warning',
+        '#fbbf24',
+        '#67e8f9',
+      ],
+      'line-width': 2,
+      'line-opacity': 0.86,
+      'line-blur': 0.4,
+    },
+  })
+
+  map.addLayer({
+    id: 'pipe-glow',
+    type: 'line',
+    source: pipeSourceId,
+    paint: {
+      'line-color': [
+        'match',
+        ['get', 'category'],
+        'rainwater',
+        '#0891b2',
+        '#475569',
+      ],
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        10,
+        6,
+        15,
+        14,
+      ],
+      'line-opacity': 0.26,
+      'line-blur': 5,
+    },
+  })
+
+  map.addLayer({
+    id: 'pipe-core',
+    type: 'line',
+    source: pipeSourceId,
+    paint: {
+      'line-color': [
+        'match',
+        ['get', 'category'],
+        'rainwater',
+        '#06b6d4',
+        '#334155',
+      ],
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        10,
+        2.8,
+        15,
+        7,
+      ],
+      'line-opacity': [
+        'match',
+        ['get', 'status'],
+        'critical',
+        1,
+        'warning',
+        0.92,
+        0.78,
+      ],
+    },
+  })
+
+  map.addLayer({
+    id: pipeFlowLayerId,
+    type: 'line',
+    source: pipeSourceId,
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+    paint: {
+      'line-gradient': buildPipeFlowGradient(0),
+      'line-width': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        10,
+        2,
+        15,
+        4.8,
+      ],
+      'line-opacity': 0.92,
+      'line-blur': 0.1,
+    },
+  })
+
+  map.addLayer({
+    id: 'pipe-alert',
+    type: 'line',
+    source: pipeSourceId,
+    filter: ['==', ['get', 'status'], 'critical'],
+    paint: {
+      'line-color': '#fb7185',
+      'line-width': 3,
+      'line-opacity': 0.9,
+      'line-dasharray': [1.2, 1.4],
+    },
+  })
+
+  map.addLayer({
+    id: 'point-halo',
+    type: 'circle',
+    source: pointSourceId,
+    minzoom: pointMinZoom,
+    paint: {
+      'circle-radius': [
+        'match',
+        ['get', 'status'],
+        'critical',
+        11,
+        'warning',
+        10,
+        9,
+      ],
+      'circle-color': [
+        'match',
+        ['get', 'status'],
+        'critical',
+        '#ef4444',
+        'warning',
+        '#f59e0b',
+        '#22d3ee',
+      ],
+      'circle-opacity': 0.18,
+      'circle-blur': 0.35,
+    },
+  })
+
+  map.addLayer({
+    id: 'point-core',
+    type: 'circle',
+    source: pointSourceId,
+    minzoom: pointMinZoom,
+    paint: {
+      'circle-radius': 4,
+      'circle-color': [
+        'match',
+        ['get', 'status'],
+        'critical',
+        '#f87171',
+        'warning',
+        '#fbbf24',
+        '#67e8f9',
+      ],
+      'circle-stroke-color': '#ecfeff',
+      'circle-stroke-width': 1.2,
+      'circle-opacity': 0.95,
+    },
+  })
+
+}
+
+function addDistrictLayers(
+  map: maplibregl.Map,
+  districts: FeatureCollection,
+  activePopupRef: MutableRefObject<maplibregl.Popup | null>,
+  closeOtherPopups?: () => void,
+) {
+  // 过滤不同类型的区域
+  const normalFeatures = districts.features.filter((f) => f.properties?.areaType === 'normal')
+  const siltationFeatures = districts.features.filter((f) => f.properties?.areaType === 'siltation')
+  const inflowFeatures = districts.features.filter((f) => f.properties?.areaType === 'inflow')
+
+  // 普通区域图层 - 绿色虚线
+  if (normalFeatures.length > 0) {
+    const normalGeoJson: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: normalFeatures,
+    }
+
+    map.addSource(districtSourceId, {
+      type: 'geojson',
+      data: normalGeoJson,
+    })
+
+    map.addLayer({
+      id: 'district-fill',
+      type: 'fill',
+      source: districtSourceId,
+      paint: {
+        'fill-color': 'rgba(34, 197, 94, 0.08)',
+        'fill-opacity': 1,
+      },
+    })
+
+    map.addLayer({
+      id: 'district-outline',
+      type: 'line',
+      source: districtSourceId,
+      paint: {
+        'line-color': 'rgba(34, 197, 94, 0.6)',
+        'line-width': 1.5,
+        'line-opacity': 0.8,
+        'line-dasharray': [4, 4],
+      },
+    })
+
+    // 普通区域点击事件
+    map.on('click', 'district-fill', (event) => {
+      const features = map.queryRenderedFeatures(event.point, {
+        layers: ['district-fill'],
+      })
+
+      if (features.length === 0) return
+
+      const feature = features[0]
+      const props = feature.properties
+
+      if (!props || !props.id || !props.name) return
+
+      activePopupRef.current?.remove()
+      closeOtherPopups?.()
+
+      const lngLat = event.lngLat
+      const popup = new maplibregl.Popup({
+        anchor: 'bottom',
+        closeButton: true,
+        closeOnClick: true,
+        focusAfterOpen: false,
+        maxWidth: '240px',
+        offset: 18,
+        className: 'drainage-district-popup',
+      })
+        .setLngLat(lngLat)
+        .setDOMContent(
+          buildDistrictPopupContent({
+            id: props.id as string,
+            name: props.name as string,
+            sewageSystem: props.sewageSystem as string | undefined,
+            status: props.status as 'healthy' | 'warning' | 'critical' | undefined,
+          }),
+        )
+        .addTo(map)
+
+      activePopupRef.current = popup
+    })
+
+    map.on('mouseenter', 'district-fill', () => {
+      map.getCanvas().style.cursor = 'pointer'
+    })
+    map.on('mouseleave', 'district-fill', () => {
+      map.getCanvas().style.cursor = ''
+    })
+  }
+
+  // 管道淤积区域 - 红色呼吸闪烁
+  if (siltationFeatures.length > 0) {
+    const siltationGeoJson: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: siltationFeatures,
+    }
+
+    map.addSource(siltationSourceId, {
+      type: 'geojson',
+      data: siltationGeoJson,
+    })
+
+    map.addLayer({
+      id: 'siltation-fill',
+      type: 'fill',
+      source: siltationSourceId,
+      paint: {
+        'fill-color': '#ef4444',
+        'fill-opacity': 0.3,
+      },
+    })
+
+    map.addLayer({
+      id: siltationLayerId,
+      type: 'line',
+      source: siltationSourceId,
+      paint: {
+        'line-color': '#f87171',
+        'line-width': 3,
+        'line-opacity': 0.8,
+      },
+    })
+
+    // 淤积区域点击事件
+    map.on('click', 'siltation-fill', (event) => {
+      const features = map.queryRenderedFeatures(event.point, {
+        layers: ['siltation-fill'],
+      })
+
+      if (features.length === 0) return
+
+      const feature = features[0]
+      const props = feature.properties
+
+      if (!props || !props.id || !props.name) return
+
+      activePopupRef.current?.remove()
+      closeOtherPopups?.()
+
+      const lngLat = event.lngLat
+      const popup = new maplibregl.Popup({
+        anchor: 'bottom',
+        closeButton: true,
+        closeOnClick: true,
+        focusAfterOpen: false,
+        maxWidth: '240px',
+        offset: 18,
+        className: 'drainage-district-popup',
+      })
+        .setLngLat(lngLat)
+        .setDOMContent(
+          buildDistrictPopupContent({
+            id: props.id as string,
+            name: props.name as string,
+            sewageSystem: props.sewageSystem as string | undefined,
+            status: 'critical',
+          }),
+        )
+        .addTo(map)
+
+      activePopupRef.current = popup
+    })
+
+    map.on('mouseenter', 'siltation-fill', () => {
+      map.getCanvas().style.cursor = 'pointer'
+    })
+    map.on('mouseleave', 'siltation-fill', () => {
+      map.getCanvas().style.cursor = ''
+    })
+  }
+
+  // 流入渗入区域 - 黄色呼吸闪烁
+  if (inflowFeatures.length > 0) {
+    const inflowGeoJson: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: inflowFeatures,
+    }
+
+    map.addSource(inflowInfiltrationSourceId, {
+      type: 'geojson',
+      data: inflowGeoJson,
+    })
+
+    map.addLayer({
+      id: 'inflow-infiltration-fill',
+      type: 'fill',
+      source: inflowInfiltrationSourceId,
+      paint: {
+        'fill-color': '#eab308',
+        'fill-opacity': 0.3,
+      },
+    })
+
+    map.addLayer({
+      id: inflowInfiltrationLayerId,
+      type: 'line',
+      source: inflowInfiltrationSourceId,
+      paint: {
+        'line-color': '#facc15',
+        'line-width': 3,
+        'line-opacity': 0.8,
+      },
+    })
+
+    // 流入渗入区域点击事件
+    map.on('click', 'inflow-infiltration-fill', (event) => {
+      const features = map.queryRenderedFeatures(event.point, {
+        layers: ['inflow-infiltration-fill'],
+      })
+
+      if (features.length === 0) return
+
+      const feature = features[0]
+      const props = feature.properties
+
+      if (!props || !props.id || !props.name) return
+
+      activePopupRef.current?.remove()
+      closeOtherPopups?.()
+
+      const lngLat = event.lngLat
+      const popup = new maplibregl.Popup({
+        anchor: 'bottom',
+        closeButton: true,
+        closeOnClick: true,
+        focusAfterOpen: false,
+        maxWidth: '240px',
+        offset: 18,
+        className: 'drainage-district-popup',
+      })
+        .setLngLat(lngLat)
+        .setDOMContent(
+          buildDistrictPopupContent({
+            id: props.id as string,
+            name: props.name as string,
+            sewageSystem: props.sewageSystem as string | undefined,
+            status: 'warning',
+          }),
+        )
+        .addTo(map)
+
+      activePopupRef.current = popup
+    })
+
+    map.on('mouseenter', 'inflow-infiltration-fill', () => {
+      map.getCanvas().style.cursor = 'pointer'
+    })
+    map.on('mouseleave', 'inflow-infiltration-fill', () => {
+      map.getCanvas().style.cursor = ''
+    })
+  }
+}
+
+function logMapZoom(map: maplibregl.Map) {
+  console.info('[DrainageMap] current zoom:', Number(map.getZoom().toFixed(2)))
+}
+
+export function useMapLibre({
+  containerRef,
+  dataset,
+  interactive = true,
+  districtAreas,
+}: UseMapLibreOptions) {
+  const mapRef = useRef<maplibregl.Map | null>(null)
+  const siteMarkersRef = useRef<maplibregl.Marker[]>([])
+  const activeSitePopupRef = useRef<maplibregl.Popup | null>(null)
+  const activeDistrictPopupRef = useRef<maplibregl.Popup | null>(null)
+  const pipeFlowFrameRef = useRef<number | null>(null)
+  const blinkFrameRef = useRef<number | null>(null)
+  const geoJsonDataset = useMemo(() => buildDrainageGeoJson(dataset), [dataset])
+
+  useEffect(() => {
+    const container = containerRef.current
+
+    if (!container || mapRef.current) {
+      return
+    }
+
+    const map = new maplibregl.Map({
+      container,
+      style: fiordStyleUrl,
+      center: dataset.center,
+      zoom: initialZoom,
+      pitch: mapPitch,
+      bearing: mapBearing,
+      minZoom: 10,
+      maxZoom: 17,
+      maxBounds: fenkouMaxBounds,
+      attributionControl: false,
+      cooperativeGestures: false,
+      interactive,
+    })
+
+    mapRef.current = map
+    map.dragPan.enable()
+    map.scrollZoom.enable()
+    map.boxZoom.enable()
+    map.doubleClickZoom.enable()
+    map.touchZoomRotate.enable()
+    map.keyboard.enable()
+
+    const handleLoad = () => {
+      // 关闭所有弹窗的辅助函数
+      const closeAllPopups = () => {
+        activeSitePopupRef.current?.remove()
+        activeSitePopupRef.current = null
+        activeDistrictPopupRef.current?.remove()
+        activeDistrictPopupRef.current = null
+      }
+
+      addTiandituDetailLayers(map)
+      addBuildingExtrusionLayer(map)
+      addFenkouFocusLayers(map, dataset.focusBoundary)
+      addWaterwayLayers(map, geoJsonDataset)
+      addDrainageLayers(map, geoJsonDataset)
+      siteMarkersRef.current = addMonitoringSiteMarkers(
+        map,
+        dataset.points,
+        activeSitePopupRef,
+        closeAllPopups,
+      )
+      updateSiteMarkerScale(map, siteMarkersRef.current)
+
+      // 添加区域图层
+      if (districtAreas) {
+        addDistrictLayers(map, districtAreas, activeDistrictPopupRef, closeAllPopups)
+      }
+
+      // 管网流动动画
+      const animatePipeFlow = (timestamp: number) => {
+        if (map.getLayer(pipeFlowLayerId)) {
+          const phase = (timestamp % pipeFlowDurationMs) / pipeFlowDurationMs
+          map.setPaintProperty(
+            pipeFlowLayerId,
+            'line-gradient',
+            buildPipeFlowGradient(phase),
+          )
+        }
+
+        pipeFlowFrameRef.current = window.requestAnimationFrame(animatePipeFlow)
+      }
+
+      pipeFlowFrameRef.current = window.requestAnimationFrame(animatePipeFlow)
+
+      // 管道淤积区域红色呼吸闪烁动画
+      const animateSiltationBlink = (timestamp: number) => {
+        if (map.getLayer(siltationLayerId)) {
+          const phase = (timestamp % blinkDurationMs) / blinkDurationMs
+          const opacity = 0.3 + Math.sin(phase * Math.PI * 2) * 0.25
+          map.setPaintProperty(siltationLayerId, 'line-opacity', opacity)
+          map.setPaintProperty('siltation-fill', 'fill-opacity', opacity * 0.8)
+        }
+
+        blinkFrameRef.current = window.requestAnimationFrame(animateSiltationBlink)
+      }
+
+      // 流入渗入区域黄色呼吸闪烁动画
+      const animateInflowBlink = (timestamp: number) => {
+        if (map.getLayer(inflowInfiltrationLayerId)) {
+          const phase = (timestamp % blinkDurationMs) / blinkDurationMs
+          const opacity = 0.3 + Math.sin(phase * Math.PI * 2) * 0.25
+          map.setPaintProperty(inflowInfiltrationLayerId, 'line-opacity', opacity)
+          map.setPaintProperty('inflow-infiltration-fill', 'fill-opacity', opacity * 0.8)
+        }
+
+        blinkFrameRef.current = window.requestAnimationFrame(animateInflowBlink)
+      }
+
+      blinkFrameRef.current = window.requestAnimationFrame(animateSiltationBlink)
+      blinkFrameRef.current = window.requestAnimationFrame(animateInflowBlink)
+
+      map.fitBounds(dataset.bounds, {
+        padding: {
+          top: 20,
+          right: 36,
+          bottom: 20,
+          left: 36,
+        },
+        pitch: mapPitch,
+        bearing: mapBearing,
+        duration: 0,
+      })
+      map.easeTo({
+        center: dataset.center,
+        zoom: initialZoom,
+        pitch: mapPitch,
+        bearing: mapBearing,
+        duration: 0,
+      })
+      logMapZoom(map)
+    }
+
+    map.once('load', handleLoad)
+    const handleZoom = () => {
+      updateSiteMarkerScale(map, siteMarkersRef.current)
+    }
+
+    const handleZoomEnd = () => logMapZoom(map)
+
+    map.on('zoom', handleZoom)
+    map.on('zoomend', handleZoomEnd)
+
+    return () => {
+      map.off('zoom', handleZoom)
+      map.off('zoomend', handleZoomEnd)
+
+      if (pipeFlowFrameRef.current !== null) {
+        window.cancelAnimationFrame(pipeFlowFrameRef.current)
+        pipeFlowFrameRef.current = null
+      }
+
+      if (blinkFrameRef.current !== null) {
+        window.cancelAnimationFrame(blinkFrameRef.current)
+        blinkFrameRef.current = null
+      }
+
+      for (const marker of siteMarkersRef.current) {
+        marker.remove()
+      }
+      siteMarkersRef.current = []
+
+      activeSitePopupRef.current?.remove()
+      activeSitePopupRef.current = null
+
+      activeDistrictPopupRef.current?.remove()
+      activeDistrictPopupRef.current = null
+
+      map.remove()
+      mapRef.current = null
+    }
+  }, [containerRef, dataset, geoJsonDataset, interactive, districtAreas])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map || !map.isStyleLoaded()) {
+      return
+    }
+
+    updateGeoJsonSource(map, pipeSourceId, geoJsonDataset.pipes)
+    updateGeoJsonSource(map, pointSourceId, geoJsonDataset.points)
+    updateGeoJsonSource(map, riskAreaSourceId, geoJsonDataset.riskAreas)
+    updateGeoJsonSource(map, waterwaySourceId, geoJsonDataset.waterways)
+  }, [geoJsonDataset])
+
+  return mapRef
+}

@@ -1,14 +1,21 @@
 import { AlarmTicker } from '../alerts/AlarmTicker'
 import { KpiStrip } from '../dashboard/KpiStrip'
 import { PanelPlaceholder } from '../dashboard/PanelPlaceholder'
+import { RainRatioChart } from '../dashboard/RainRatioChart'
 import { MapViewport } from '../map/MapViewport'
 import {
   drainageAlarms,
+  drainageMapDataset,
   kpiMetrics,
   leftPanelSummaries,
   mapLayerSummaries,
   rightPanelSummaries,
+  districtRainRatios,
 } from '../../data/mockDrainageData'
+import { pipelinePipes, pipelineWells } from '../../data/pipelineGisData'
+import { monitoringSites } from '../../data/monitoringSiteData'
+import { buildMapLayerSummaries } from '../../utils/buildMapLayerSummaries'
+import { buildDistrictGeoJson } from '../../utils/districtUtils'
 
 function CloudIcon() {
   return (
@@ -68,15 +75,38 @@ function UserIcon() {
 }
 
 export function DashboardShell() {
+  const rightPanels = rightPanelSummaries.filter(
+    (panel) => panel.id !== 'rain-ratio' && panel.id !== 'device-statistics',
+  )
+  const mapDataset = { ...drainageMapDataset, pipes: pipelinePipes }
+  const mapDatasetWithWells = {
+    ...mapDataset,
+    points: [...pipelineWells, ...monitoringSites],
+  }
+  const layerSummaries = buildMapLayerSummaries(
+    mapLayerSummaries,
+    pipelinePipes,
+    pipelineWells,
+  )
+
+  // 使用工具函数将区域数据转换为 GeoJSON 格式
+  const districtGeoJson = buildDistrictGeoJson()
+
   return (
     <main className="relative h-screen min-h-[720px] overflow-hidden bg-[#021927] px-4 pb-4 text-cyan-50">
-      <div className="pointer-events-none absolute inset-0 z-0 opacity-80">
-        <MapViewport layers={mapLayerSummaries} showChrome={false} />
+      <div className="absolute inset-0 z-0">
+        <MapViewport
+          dataset={mapDatasetWithWells}
+          interactive
+          layers={layerSummaries}
+          showChrome={false}
+          districtAreas={districtGeoJson}
+        />
       </div>
-      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_center_top,rgba(21,176,255,0.12),transparent_34%),linear-gradient(180deg,rgba(1,12,22,0.42)_0%,rgba(2,23,36,0.36)_48%,rgba(1,10,18,0.62)_100%)]" />
-      <div className="relative z-10 flex h-full flex-col gap-3">
-        <div className="relative h-[72px] shrink-0">
-          <header className="relative grid h-16 grid-cols-[1fr_1.5fr_1fr] items-center gap-4 overflow-hidden bg-[linear-gradient(180deg,rgba(2,15,28,0.58)_0%,rgba(3,27,43,0.3)_62%,rgba(3,34,52,0)_100%)] px-5 shadow-[inset_0_-28px_34px_rgba(2,23,36,0.22)]">
+      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_center_top,rgba(21,176,255,0.05),transparent_34%),linear-gradient(180deg,rgba(1,12,22,0.08)_0%,rgba(2,23,36,0.04)_48%,rgba(1,10,18,0.16)_100%)]" />
+      <div className="pointer-events-none relative z-10 flex h-full flex-col gap-3">
+        <div className="pointer-events-auto relative h-[72px] shrink-0">
+          <header className="relative grid h-16 grid-cols-[1fr_1.5fr_1fr] items-center gap-4 overflow-hidden bg-[linear-gradient(180deg,rgba(2,15,28,0.78)_0%,rgba(3,27,43,0.48)_62%,rgba(3,34,52,0.08)_100%)] px-5 shadow-[0_8px_24px_rgba(0,0,0,0.22),inset_0_-28px_34px_rgba(2,23,36,0.24)]">
             <div className="relative z-10 flex items-center">
               <div className="flex items-center gap-2 px-1 text-sm text-cyan-100/72">
                 <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.85)]" />
@@ -161,22 +191,36 @@ export function DashboardShell() {
         </div>
 
         <section className="grid min-h-0 flex-1 grid-cols-[320px_1fr_320px] gap-3">
-          <aside className="min-h-0">
+          <aside className="pointer-events-auto min-h-0">
             <PanelPlaceholder panels={leftPanelSummaries} />
           </aside>
           <section className="flex min-h-0 flex-col gap-3">
-            <KpiStrip metrics={kpiMetrics} />
+            <div className="pointer-events-auto">
+              <KpiStrip metrics={kpiMetrics} />
+            </div>
             <div
               className="min-h-0 flex-1"
               aria-label="GIS 地图主展示区域"
             />
           </section>
-          <aside className="min-h-0">
-            <PanelPlaceholder panels={rightPanelSummaries} />
+          <aside className="pointer-events-auto min-h-0">
+            <div className="flex h-full min-h-0 flex-col gap-3">
+              <article className="flex h-[280px] flex-col rounded border border-cyan-200/28 bg-[#053452]/48 p-2.5 shadow-[0_0_24px_rgba(56,189,248,0.16),inset_0_0_18px_rgba(8,145,178,0.1)] backdrop-blur-sm">
+                <div className="flex shrink-0 items-center justify-between gap-2">
+                  <h2 className="text-sm font-medium text-cyan-50">各区域晴雨比</h2>
+                  <span className="h-2 w-2 rounded-full bg-cyan-300" />
+                </div>
+                <div className="mt-1.5 min-h-0 flex-1">
+                  <RainRatioChart data={districtRainRatios} />
+                </div>
+              </article>
+              <PanelPlaceholder className="contents" panels={rightPanels} />
+              <div className="min-h-0 flex-1">
+                <AlarmTicker alarms={drainageAlarms} variant="card" />
+              </div>
+            </div>
           </aside>
         </section>
-
-        <AlarmTicker alarms={drainageAlarms} />
       </div>
     </main>
   )
