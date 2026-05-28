@@ -5,22 +5,26 @@ import type {
   MapLayerSummary,
   PanelSummary,
   DistrictRainRatio,
+  NetworkStatistics,
+  WaterQualityData,
+  DailyRainRatioData,
+  DailyFlowData,
 } from '../types/drainage'
 
 export const kpiMetrics: KpiMetric[] = [
   {
     id: 'water-quality',
     label: '污水厂进水水质',
-    value: 'COD 42',
+    value: 'COD 385',
     unit: 'mg/L',
     status: 'healthy',
   },
   {
     id: 'daily-flow',
     label: '今日进水量',
-    value: '12.8',
-    unit: '万m³',
-    status: 'warning',
+    value: '4720',
+    unit: 'm³',
+    status: 'healthy',
   },
   {
     id: 'rain-dry-ratio',
@@ -78,11 +82,11 @@ export const rightPanelSummaries: PanelSummary[] = [
     status: 'healthy',
   },
   {
-    id: 'device-health',
-    title: '设备健康状态',
-    metric: '91%',
-    description: '用于承载健康状态环图',
-    status: 'warning',
+    id: 'network-info',
+    title: '管网信息',
+    metric: '正常运行',
+    description: '用于承载管网信息卡片',
+    status: 'healthy',
   },
 ]
 
@@ -268,7 +272,49 @@ export const districtRainRatios: DistrictRainRatio[] = [
   { district: '温馨小区', rainyWeatherFlow: 38.2, dryWeatherFlow: 14.2, ratio: 2.69 },
   { district: '工业园区', rainyWeatherFlow: 35.6, dryWeatherFlow: 16.8, ratio: 2.12 },
   { district: '狮城春晓', rainyWeatherFlow: 26.8, dryWeatherFlow: 12.4, ratio: 2.16 },
-  { district: '景溪苑', rainyWeatherFlow: 29.4, dryWeatherFlow: 13.1, ratio: 2.24 },
+  { district: '景溪苑', rainyWeatherFlow: 52.8, dryWeatherFlow: 13.1, ratio: 4.03 },
   { district: '汾口初中', rainyWeatherFlow: 31.2, dryWeatherFlow: 15.6, ratio: 2.0 },
   { district: '第二医院', rainyWeatherFlow: 27.8, dryWeatherFlow: 11.8, ratio: 2.36 },
+]
+
+export const networkStatistics: NetworkStatistics = {
+  totalLength: 156.8,        // 管网总长 (km)
+  coverageRate: 92.5,        // 管网覆盖率 (%)
+  coverageArea: 28.6,        // 覆盖面积 (km²)
+  rainPipeLength: 68.4,      // 雨水管道长度 (km)
+  sewagePipeLength: 72.3,    // 污水管道长度 (km)
+  mixedPipeLength: 16.1,     // 混合管道长度 (km)
+}
+
+// 最近一周污水厂进水水质数据值（不含日期，日期由组件动态生成）
+export const waterQualityTrendValues: Omit<WaterQualityData, 'date'>[] = [
+  { cod: 342, ammoniaNitrogen: 28.5, totalPhosphorus: 5.2, ph: 7.2 },
+  { cod: 378, ammoniaNitrogen: 32.8, totalPhosphorus: 5.8, ph: 7.1 },
+  { cod: 326, ammoniaNitrogen: 26.2, totalPhosphorus: 4.9, ph: 7.3 },
+  { cod: 415, ammoniaNitrogen: 35.5, totalPhosphorus: 6.5, ph: 6.9 },
+  { cod: 358, ammoniaNitrogen: 29.1, totalPhosphorus: 5.3, ph: 7.0 },
+  { cod: 369, ammoniaNitrogen: 30.2, totalPhosphorus: 5.6, ph: 7.1 },
+  { cod: 385, ammoniaNitrogen: 33.8, totalPhosphorus: 6.1, ph: 6.8 },
+]
+
+// 最近一周晴雨比数据值（不含日期，日期由组件动态生成）
+export const dailyRainRatioTrendValues: Omit<DailyRainRatioData, 'date'>[] = [
+  { rainyWeatherFlow: 42.5, dryWeatherFlow: 17.8, ratio: 2.39 },
+  { rainyWeatherFlow: 38.2, dryWeatherFlow: 16.5, ratio: 2.32 },
+  { rainyWeatherFlow: 45.8, dryWeatherFlow: 18.2, ratio: 2.52 },
+  { rainyWeatherFlow: 52.4, dryWeatherFlow: 19.5, ratio: 2.69 },
+  { rainyWeatherFlow: 35.6, dryWeatherFlow: 15.8, ratio: 2.25 },
+  { rainyWeatherFlow: 48.2, dryWeatherFlow: 20.1, ratio: 2.40 },
+  { rainyWeatherFlow: 44.8, dryWeatherFlow: 18.9, ratio: 2.37 },
+]
+
+// 最近一周污水厂进水量数据值（不含日期，日期由组件动态生成）
+export const dailyFlowTrendValues: Omit<DailyFlowData, 'date'>[] = [
+  { flow: 4650 },
+  { flow: 4720 },
+  { flow: 4580 },
+  { flow: 4850 },
+  { flow: 4690 },
+  { flow: 4770 },
+  { flow: 4620 },
 ]

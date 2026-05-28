@@ -1,16 +1,21 @@
 import { AlarmTicker } from '../alerts/AlarmTicker'
 import { KpiStrip } from '../dashboard/KpiStrip'
-import { PanelPlaceholder } from '../dashboard/PanelPlaceholder'
 import { RainRatioChart } from '../dashboard/RainRatioChart'
+import { DailyRainRatioChart } from '../dashboard/DailyRainRatioChart'
+import { DailyFlowChart } from '../dashboard/DailyFlowChart'
+import { WaterQualityChart } from '../dashboard/WaterQualityChart'
+import { NetworkInfoCard } from '../dashboard/NetworkInfoCard'
 import { MapViewport } from '../map/MapViewport'
 import {
   drainageAlarms,
   drainageMapDataset,
   kpiMetrics,
-  leftPanelSummaries,
   mapLayerSummaries,
-  rightPanelSummaries,
   districtRainRatios,
+  dailyRainRatioTrendValues,
+  dailyFlowTrendValues,
+  networkStatistics,
+  waterQualityTrendValues,
 } from '../../data/mockDrainageData'
 import { pipelinePipes, pipelineWells } from '../../data/pipelineGisData'
 import { monitoringSites } from '../../data/monitoringSiteData'
@@ -75,9 +80,6 @@ function UserIcon() {
 }
 
 export function DashboardShell() {
-  const rightPanels = rightPanelSummaries.filter(
-    (panel) => panel.id !== 'rain-ratio' && panel.id !== 'device-statistics',
-  )
   const mapDataset = { ...drainageMapDataset, pipes: pipelinePipes }
   const mapDatasetWithWells = {
     ...mapDataset,
@@ -192,7 +194,40 @@ export function DashboardShell() {
 
         <section className="grid min-h-0 flex-1 grid-cols-[320px_1fr_320px] gap-3">
           <aside className="pointer-events-auto min-h-0">
-            <PanelPlaceholder panels={leftPanelSummaries} />
+            <div className="flex h-full flex-col gap-3">
+              {/* 水质趋势图表 */}
+              <article className="flex flex-1 flex-col rounded border border-cyan-200/28 bg-[#053452]/48 shadow-[0_0_24px_rgba(56,189,248,0.16),inset_0_0_18px_rgba(8,145,178,0.1)] backdrop-blur-sm">
+                <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-4">
+                  <h2 className="text-sm font-medium text-cyan-50">最近一周进水水质</h2>
+                  <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.7)]" />
+                </div>
+                <div className="mt-3 min-h-0 flex-1 px-4 pb-4">
+                  <WaterQualityChart data={waterQualityTrendValues} />
+                </div>
+              </article>
+
+              {/* 进水量趋势 */}
+              <article className="flex flex-1 flex-col rounded border border-cyan-200/28 bg-[#053452]/48 shadow-[0_0_24px_rgba(56,189,248,0.16),inset_0_0_18px_rgba(8,145,178,0.1)] backdrop-blur-sm">
+                <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-4">
+                  <h2 className="text-sm font-medium text-cyan-50">最近一周进水量</h2>
+                  <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.7)]" />
+                </div>
+                <div className="mt-3 min-h-0 flex-1 px-4 pb-4">
+                  <DailyFlowChart data={dailyFlowTrendValues} />
+                </div>
+              </article>
+
+              {/* 晴雨比趋势 */}
+              <article className="flex flex-1 flex-col rounded border border-cyan-200/28 bg-[#053452]/48 shadow-[0_0_24px_rgba(56,189,248,0.16),inset_0_0_18px_rgba(8,145,178,0.1)] backdrop-blur-sm">
+                <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-4">
+                  <h2 className="text-sm font-medium text-cyan-50">最近一周晴雨比</h2>
+                  <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.7)]" />
+                </div>
+                <div className="mt-3 min-h-0 flex-1 px-4 pb-4">
+                  <DailyRainRatioChart data={dailyRainRatioTrendValues} />
+                </div>
+              </article>
+            </div>
           </aside>
           <section className="flex min-h-0 flex-col gap-3">
             <div className="pointer-events-auto">
@@ -205,6 +240,9 @@ export function DashboardShell() {
           </section>
           <aside className="pointer-events-auto min-h-0">
             <div className="flex h-full min-h-0 flex-col gap-3">
+              <div className="min-h-0 flex-1">
+                <NetworkInfoCard data={networkStatistics} />
+              </div>
               <article className="flex h-[280px] flex-col rounded border border-cyan-200/28 bg-[#053452]/48 p-2.5 shadow-[0_0_24px_rgba(56,189,248,0.16),inset_0_0_18px_rgba(8,145,178,0.1)] backdrop-blur-sm">
                 <div className="flex shrink-0 items-center justify-between gap-2">
                   <h2 className="text-sm font-medium text-cyan-50">各区域晴雨比</h2>
@@ -214,7 +252,6 @@ export function DashboardShell() {
                   <RainRatioChart data={districtRainRatios} />
                 </div>
               </article>
-              <PanelPlaceholder className="contents" panels={rightPanels} />
               <div className="min-h-0 flex-1">
                 <AlarmTicker alarms={drainageAlarms} variant="card" />
               </div>
