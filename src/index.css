@@ -40,3 +40,138 @@ textarea,
 select {
   font: inherit;
 }
+
+.site-map-marker-shell {
+  display: flex;
+  transform: scale(var(--site-marker-scale, 1));
+  transform-origin: center bottom;
+}
+
+.site-map-marker-alarm {
+  animation: site-marker-alarm-pulse 1.1s ease-in-out infinite;
+}
+
+.alarm-scroll-y {
+  animation: alarm-scroll-y 14s linear infinite;
+}
+
+.alarm-scroll-y:hover {
+  animation-play-state: paused;
+}
+
+@keyframes alarm-scroll-y {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes site-marker-alarm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px rgb(248 113 113 / 70%));
+  }
+
+  50% {
+    opacity: 0.42;
+    filter: drop-shadow(0 0 12px rgb(248 113 113 / 95%));
+  }
+}
+
+/* 站点弹窗样式 */
+.drainage-site-popup .maplibregl-popup-content {
+  overflow: hidden;
+  border: 1px solid rgb(34 211 238 / 30%);
+  border-radius: 6px;
+  background: rgb(15 23 42 / 96%);
+  padding: 0;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 40%);
+  backdrop-filter: blur(8px);
+}
+
+.drainage-site-popup .maplibregl-popup-tip {
+  border-top-color: rgb(15 23 42 / 96%);
+  border-bottom-color: rgb(15 23 42 / 96%);
+}
+
+.drainage-site-popup .maplibregl-popup-close-button {
+  color: rgb(148 163 184);
+  font-size: 18px;
+  line-height: 20px;
+  padding: 4px 6px;
+  transition: color 0.15s;
+  border-radius: 4px;
+}
+
+.drainage-site-popup .maplibregl-popup-close-button:hover {
+  color: rgb(224 242 254);
+  background-color: rgb(34 211 238 / 10%);
+}
+
+/* 区域弹窗样式 */
+.drainage-district-popup .maplibregl-popup-content {
+  overflow: hidden;
+  border: 1px solid rgb(34 211 238 / 30%);
+  border-radius: 6px;
+  background: rgb(15 23 42 / 96%);
+  padding: 0;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 40%);
+  backdrop-filter: blur(8px);
+}
+
+.drainage-district-popup .maplibregl-popup-tip {
+  border-top-color: rgb(15 23 42 / 96%);
+  border-bottom-color: rgb(15 23 42 / 96%);
+}
+
+.drainage-district-popup .maplibregl-popup-close-button {
+  color: rgb(148 163 184);
+  font-size: 18px;
+  line-height: 20px;
+  padding: 4px 6px;
+  transition: color 0.15s;
+  border-radius: 4px;
+}
+
+.drainage-district-popup .maplibregl-popup-close-button:hover {
+  color: rgb(224 242 254);
+  background-color: rgb(34 211 238 / 10%);
+}
+
+/* 雨污混接预警弹窗样式 */
+.drainage-mixing-popup-wrapper .maplibregl-popup-content {
+  overflow: visible;
+  border: 1px solid rgb(239 68 68 / 40%);
+  border-radius: 8px;
+  background: rgb(15 23 42 / 98%);
+  padding: 0;
+  box-shadow:
+    0 8px 32px rgb(0 0 0 / 50%),
+    0 0 0 1px rgb(239 68 68 / 20%),
+    0 0 20px rgb(239 68 68 / 15%);
+  backdrop-filter: blur(12px);
+}
+
+.drainage-mixing-popup-wrapper .maplibregl-popup-tip {
+  border-top-color: rgb(15 23 42 / 98%);
+  border-bottom-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-mixing-popup-wrapper .maplibregl-popup-close-button {
+  color: rgb(148 163 184);
+  font-size: 18px;
+  line-height: 20px;
+  padding: 4px 6px;
+  transition: color 0.15s;
+  border-radius: 4px;
+  z-index: 10;
+}
+
+.drainage-mixing-popup-wrapper .maplibregl-popup-close-button:hover {
+  color: rgb(224 242 254);
+  background-color: rgb(34 211 238 / 10%);
+}

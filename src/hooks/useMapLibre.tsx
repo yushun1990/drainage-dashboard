@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { createRoot } from 'react-dom/client'
 import maplibregl from 'maplibre-gl'
 import type { FeatureCollection, Polygon } from 'geojson'
 import type { MutableRefObject, RefObject } from 'react'
@@ -14,6 +15,7 @@ import type {
 } from '../types/drainage'
 import { buildDrainageGeoJson } from '../utils/buildDrainageGeoJson'
 import type { DistrictData } from '../utils/districtUtils'
+import { SiteMixingPopup } from '../components/map/SiteMixingPopup'
 
 interface UseMapLibreOptions {
   containerRef: RefObject<HTMLDivElement | null>
@@ -35,6 +37,8 @@ const siltationSourceId = 'siltation-area'
 const siltationLayerId = 'siltation-blink'
 const inflowInfiltrationSourceId = 'inflow-infiltration-area'
 const inflowInfiltrationLayerId = 'inflow-infiltration-blink'
+const rainAlertSourceId = 'rain-alert-area'
+const rainAlertLayerId = 'rain-alert-effect'
 const waterwaySourceId = 'fenkou-waterways'
 const fenkouFocusSourceId = 'fenkou-focus'
 const fenkouMaskSourceId = 'fenkou-mask'
@@ -149,6 +153,19 @@ function updateSiteMarkerScale(
 }
 
 function buildSitePopupContent(point: DrainageMapPoint): HTMLElement {
+  // 站点155：渲染雨污混接预警弹窗（包含图表）
+  if (point.id === 'site-155') {
+    const wrapper = document.createElement('div')
+    wrapper.className = 'drainage-mixing-popup'
+
+    // 使用 React 在弹窗中渲染图表
+    const root = createRoot(wrapper)
+    root.render(<SiteMixingPopup siteId={point.id} />)
+
+    return wrapper
+  }
+
+  // 其他站点：渲染简单信息弹窗
   const wrapper = document.createElement('div')
   wrapper.className = 'min-w-[200px] text-cyan-50'
 
@@ -242,6 +259,37 @@ function buildDistrictPopupContent(district: DistrictData): HTMLElement {
   statusItem.append(statusLabel, statusValueSpan)
 
   body.append(idItem, systemItem, statusItem)
+
+  // 添加晴雨比数据（如果有）
+  if (district.rainRatio !== undefined && district.rainRatio !== null) {
+    const rainRatioItem = createInfoItem('晴雨比', district.rainRatio.toFixed(2))
+
+    // 根据晴雨比值设置颜色（与地图蓝色渐变一致）
+    let rainRatioStatusColor = 'text-indigo-300'
+    if (district.rainRatio >= 4.0) {
+      rainRatioStatusColor = 'text-white'
+    } else if (district.rainRatio >= 3.5) {
+      rainRatioStatusColor = 'text-indigo-200'
+    } else if (district.rainRatio >= 3.0) {
+      rainRatioStatusColor = 'text-indigo-300'
+    } else if (district.rainRatio >= 2.5) {
+      rainRatioStatusColor = 'text-violet-300'
+    }
+
+    const rainRatioValueSpan = rainRatioItem.querySelector('.text-cyan-100\\/80')
+    if (rainRatioValueSpan) {
+      rainRatioValueSpan.className = `text-xs ${rainRatioStatusColor} font-medium`
+    }
+
+    body.append(rainRatioItem)
+
+    if (district.rainyWeatherFlow !== undefined && district.dryWeatherFlow !== undefined) {
+      const rainyFlowItem = createInfoItem('雨天流量', `${district.rainyWeatherFlow} L/s`)
+      const dryFlowItem = createInfoItem('旱流流量', `${district.dryWeatherFlow} L/s`)
+      body.append(rainyFlowItem, dryFlowItem)
+    }
+  }
+
   wrapper.append(header, body)
 
   return wrapper
@@ -274,14 +322,18 @@ function addMonitoringSiteMarkers(
       activePopupRef.current?.remove()
       closeOtherPopups?.()
 
+      // 站点155使用更大的弹窗宽度以显示图表
+      const maxWidth = point.id === 'site-155' ? '420px' : '240px'
+      const offset = point.id === 'site-155' ? 12 : 18
+
       const popup = new maplibregl.Popup({
         anchor: 'bottom',
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
-        maxWidth: '240px',
-        offset: 18,
-        className: 'drainage-site-popup',
+        maxWidth,
+        offset,
+        className: point.id === 'site-155' ? 'drainage-mixing-popup-wrapper' : 'drainage-site-popup',
       })
         .setLngLat(point.coordinate)
         .setDOMContent(buildSitePopupContent(point))
@@ -889,11 +941,14 @@ function addDistrictLayers(
   closeOtherPopups?: () => void,
 ) {
   // 过滤不同类型的区域
-  const normalFeatures = districts.features.filter((f) => f.properties?.areaType === 'normal')
+  // 普通区域排除晴雨比超限的区域，避免与呼吸动画图层重叠
+  const normalFeatures = districts.features.filter(
+    (f) => f.properties?.areaType === 'normal' && (f.properties?.rainRatio ?? 0) < 2.5,
+  )
   const siltationFeatures = districts.features.filter((f) => f.properties?.areaType === 'siltation')
   const inflowFeatures = districts.features.filter((f) => f.properties?.areaType === 'inflow')
 
-  // 普通区域图层 - 绿色虚线
+  // 普通区域图层 - 根据晴雨比显示蓝色深浅
   if (normalFeatures.length > 0) {
     const normalGeoJson: FeatureCollection = {
       type: 'FeatureCollection',
@@ -910,7 +965,18 @@ function addDistrictLayers(
       type: 'fill',
       source: districtSourceId,
       paint: {
-        'fill-color': 'rgba(34, 197, 94, 0.08)',
+        'fill-color': [
+          'interpolate',
+          ['linear'],
+          ['coalesce', ['get', 'rainRatio'], 0],
+          // 晴雨比范围 1.5 - 4.5+
+          1.8, 'rgba(99, 102, 241, 0.12)',   // 浅蓝紫
+          2.2, 'rgba(99, 102, 241, 0.18)',   // 浅蓝紫
+          2.6, 'rgba(79, 70, 229, 0.25)',    // 中蓝紫
+          3.0, 'rgba(67, 56, 202, 0.32)',    // 中深蓝紫
+          3.5, 'rgba(55, 48, 163, 0.40)',    // 深蓝紫
+          4.0, 'rgba(49, 46, 129, 0.50)',    // 很深蓝紫
+        ],
         'fill-opacity': 1,
       },
     })
@@ -920,15 +986,25 @@ function addDistrictLayers(
       type: 'line',
       source: districtSourceId,
       paint: {
-        'line-color': 'rgba(34, 197, 94, 0.6)',
+        'line-color': [
+          'interpolate',
+          ['linear'],
+          ['coalesce', ['get', 'rainRatio'], 0],
+          1.8, 'rgba(129, 140, 248, 0.5)',   // 浅轮廓
+          2.2, 'rgba(129, 140, 248, 0.6)',
+          2.6, 'rgba(109, 109, 224, 0.7)',    // 中轮廓
+          3.0, 'rgba(99, 102, 241, 0.75)',
+          3.5, 'rgba(91, 87, 204, 0.8)',
+          4.0, 'rgba(79, 70, 229, 0.9)',      // 深轮廓
+        ],
         'line-width': 1.5,
         'line-opacity': 0.8,
         'line-dasharray': [4, 4],
       },
     })
 
-    // 普通区域点击事件
-    map.on('click', 'district-fill', (event) => {
+    // 普通区域点击处理
+    const handleNormalDistrictClick = (event: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(event.point, {
         layers: ['district-fill'],
       })
@@ -960,19 +1036,31 @@ function addDistrictLayers(
             name: props.name as string,
             sewageSystem: props.sewageSystem as string | undefined,
             status: props.status as 'healthy' | 'warning' | 'critical' | undefined,
+            rainyWeatherFlow: props.rainyWeatherFlow as number | undefined,
+            dryWeatherFlow: props.dryWeatherFlow as number | undefined,
+            rainRatio: props.rainRatio as number | undefined,
           }),
         )
         .addTo(map)
 
       activePopupRef.current = popup
-    })
+    }
 
-    map.on('mouseenter', 'district-fill', () => {
+    // 在 fill 和 outline 图层上都设置点击和光标事件
+    map.on('click', 'district-fill', handleNormalDistrictClick)
+    map.on('click', 'district-outline', handleNormalDistrictClick)
+
+    const setPointerCursor = () => {
       map.getCanvas().style.cursor = 'pointer'
-    })
-    map.on('mouseleave', 'district-fill', () => {
+    }
+    const resetCursor = () => {
       map.getCanvas().style.cursor = ''
-    })
+    }
+
+    map.on('mouseenter', 'district-fill', setPointerCursor)
+    map.on('mouseleave', 'district-fill', resetCursor)
+    map.on('mouseenter', 'district-outline', setPointerCursor)
+    map.on('mouseleave', 'district-outline', resetCursor)
   }
 
   // 管道淤积区域 - 红色呼吸闪烁
@@ -1008,8 +1096,8 @@ function addDistrictLayers(
       },
     })
 
-    // 淤积区域点击事件
-    map.on('click', 'siltation-fill', (event) => {
+    // 淤积区域点击处理
+    const handleSiltationClick = (event: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(event.point, {
         layers: ['siltation-fill'],
       })
@@ -1041,19 +1129,31 @@ function addDistrictLayers(
             name: props.name as string,
             sewageSystem: props.sewageSystem as string | undefined,
             status: 'critical',
+            rainyWeatherFlow: props.rainyWeatherFlow as number | undefined,
+            dryWeatherFlow: props.dryWeatherFlow as number | undefined,
+            rainRatio: props.rainRatio as number | undefined,
           }),
         )
         .addTo(map)
 
       activePopupRef.current = popup
-    })
+    }
 
-    map.on('mouseenter', 'siltation-fill', () => {
+    // 在 fill 和 line 图层上都设置点击和光标事件
+    map.on('click', 'siltation-fill', handleSiltationClick)
+    map.on('click', siltationLayerId, handleSiltationClick)
+
+    const setPointerCursor = () => {
       map.getCanvas().style.cursor = 'pointer'
-    })
-    map.on('mouseleave', 'siltation-fill', () => {
+    }
+    const resetCursor = () => {
       map.getCanvas().style.cursor = ''
-    })
+    }
+
+    map.on('mouseenter', 'siltation-fill', setPointerCursor)
+    map.on('mouseleave', 'siltation-fill', resetCursor)
+    map.on('mouseenter', siltationLayerId, setPointerCursor)
+    map.on('mouseleave', siltationLayerId, resetCursor)
   }
 
   // 流入渗入区域 - 黄色呼吸闪烁
@@ -1089,8 +1189,8 @@ function addDistrictLayers(
       },
     })
 
-    // 流入渗入区域点击事件
-    map.on('click', 'inflow-infiltration-fill', (event) => {
+    // 流入渗入区域点击处理
+    const handleInflowClick = (event: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(event.point, {
         layers: ['inflow-infiltration-fill'],
       })
@@ -1122,19 +1222,130 @@ function addDistrictLayers(
             name: props.name as string,
             sewageSystem: props.sewageSystem as string | undefined,
             status: 'warning',
+            rainyWeatherFlow: props.rainyWeatherFlow as number | undefined,
+            dryWeatherFlow: props.dryWeatherFlow as number | undefined,
+            rainRatio: props.rainRatio as number | undefined,
           }),
         )
         .addTo(map)
 
       activePopupRef.current = popup
+    }
+
+    // 在 fill 和 line 图层上都设置点击和光标事件
+    map.on('click', 'inflow-infiltration-fill', handleInflowClick)
+    map.on('click', inflowInfiltrationLayerId, handleInflowClick)
+
+    const setPointerCursor = () => {
+      map.getCanvas().style.cursor = 'pointer'
+    }
+    const resetCursor = () => {
+      map.getCanvas().style.cursor = ''
+    }
+
+    map.on('mouseenter', 'inflow-infiltration-fill', setPointerCursor)
+    map.on('mouseleave', 'inflow-infiltration-fill', resetCursor)
+    map.on('mouseenter', inflowInfiltrationLayerId, setPointerCursor)
+    map.on('mouseleave', inflowInfiltrationLayerId, resetCursor)
+  }
+
+  // 晴雨比超限区域 - 呼吸闪烁特效
+  const rainAlertFeatures = districts.features.filter(
+    (f) => f.properties?.areaType === 'normal' && (f.properties?.rainRatio ?? 0) >= 2.5,
+  )
+
+  console.log('[降雨特效] 符合条件的区域数量:', rainAlertFeatures.length)
+  if (rainAlertFeatures.length > 0) {
+    console.log('[降雨特效] 区域名称:', rainAlertFeatures.map(f => f.properties?.name))
+    const rainAlertGeoJson: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: rainAlertFeatures,
+    }
+
+    map.addSource(rainAlertSourceId, {
+      type: 'geojson',
+      data: rainAlertGeoJson,
     })
 
-    map.on('mouseenter', 'inflow-infiltration-fill', () => {
+    // 蓝色填充层 - 用于呼吸动画（深色表示警戒）
+    map.addLayer({
+      id: 'rain-alert-fill',
+      type: 'fill',
+      source: rainAlertSourceId,
+      paint: {
+        'fill-color': 'rgb(49, 46, 129)',
+        'fill-opacity': 0.7,
+      },
+    })
+
+    console.log('[降雨特效] 蓝色填充层已创建')
+
+    // 降雨效果边框
+    map.addLayer({
+      id: rainAlertLayerId,
+      type: 'line',
+      source: rainAlertSourceId,
+      paint: {
+        'line-color': 'rgb(43, 40, 109)',
+        'line-width': 2.5,
+        'line-opacity': 0.85,
+      },
+    })
+
+    // 降雨区域点击处理
+    const handleRainAlertClick = (event: maplibregl.MapMouseEvent) => {
+      const features = map.queryRenderedFeatures(event.point, {
+        layers: [rainAlertLayerId],
+      })
+
+      if (features.length === 0) return
+
+      const feature = features[0]
+      const props = feature.properties
+
+      if (!props || !props.id || !props.name) return
+
+      activePopupRef.current?.remove()
+      closeOtherPopups?.()
+
+      const lngLat = event.lngLat
+      const popup = new maplibregl.Popup({
+        anchor: 'bottom',
+        closeButton: true,
+        closeOnClick: true,
+        focusAfterOpen: false,
+        maxWidth: '240px',
+        offset: 18,
+        className: 'drainage-district-popup',
+      })
+        .setLngLat(lngLat)
+        .setDOMContent(
+          buildDistrictPopupContent({
+            id: props.id as string,
+            name: props.name as string,
+            sewageSystem: props.sewageSystem as string | undefined,
+            status: 'warning',
+            rainyWeatherFlow: props.rainyWeatherFlow as number | undefined,
+            dryWeatherFlow: props.dryWeatherFlow as number | undefined,
+            rainRatio: props.rainRatio as number | undefined,
+          }),
+        )
+        .addTo(map)
+
+      activePopupRef.current = popup
+    }
+
+    map.on('click', rainAlertLayerId, handleRainAlertClick)
+
+    const setPointerCursor = () => {
       map.getCanvas().style.cursor = 'pointer'
-    })
-    map.on('mouseleave', 'inflow-infiltration-fill', () => {
+    }
+    const resetCursor = () => {
       map.getCanvas().style.cursor = ''
-    })
+    }
+
+    map.on('mouseenter', rainAlertLayerId, setPointerCursor)
+    map.on('mouseleave', rainAlertLayerId, resetCursor)
   }
 }
 
@@ -1154,6 +1365,7 @@ export function useMapLibre({
   const activeDistrictPopupRef = useRef<maplibregl.Popup | null>(null)
   const pipeFlowFrameRef = useRef<number | null>(null)
   const blinkFrameRef = useRef<number | null>(null)
+  const rainDropFrameRef = useRef<number | null>(null)
   const geoJsonDataset = useMemo(() => buildDrainageGeoJson(dataset), [dataset])
 
   useEffect(() => {
@@ -1231,11 +1443,15 @@ export function useMapLibre({
 
       // 管道淤积区域红色呼吸闪烁动画
       const animateSiltationBlink = (timestamp: number) => {
-        if (map.getLayer(siltationLayerId)) {
-          const phase = (timestamp % blinkDurationMs) / blinkDurationMs
-          const opacity = 0.3 + Math.sin(phase * Math.PI * 2) * 0.25
-          map.setPaintProperty(siltationLayerId, 'line-opacity', opacity)
-          map.setPaintProperty('siltation-fill', 'fill-opacity', opacity * 0.8)
+        try {
+          if (map.getLayer(siltationLayerId)) {
+            const phase = (timestamp % blinkDurationMs) / blinkDurationMs
+            const opacity = 0.3 + Math.sin(phase * Math.PI * 2) * 0.25
+            map.setPaintProperty(siltationLayerId, 'line-opacity', opacity)
+            map.setPaintProperty('siltation-fill', 'fill-opacity', opacity * 0.8)
+          }
+        } catch (e) {
+          // 图层可能还没准备好
         }
 
         blinkFrameRef.current = window.requestAnimationFrame(animateSiltationBlink)
@@ -1243,18 +1459,47 @@ export function useMapLibre({
 
       // 流入渗入区域黄色呼吸闪烁动画
       const animateInflowBlink = (timestamp: number) => {
-        if (map.getLayer(inflowInfiltrationLayerId)) {
-          const phase = (timestamp % blinkDurationMs) / blinkDurationMs
-          const opacity = 0.3 + Math.sin(phase * Math.PI * 2) * 0.25
-          map.setPaintProperty(inflowInfiltrationLayerId, 'line-opacity', opacity)
-          map.setPaintProperty('inflow-infiltration-fill', 'fill-opacity', opacity * 0.8)
+        try {
+          if (map.getLayer(inflowInfiltrationLayerId)) {
+            const phase = (timestamp % blinkDurationMs) / blinkDurationMs
+            const opacity = 0.3 + Math.sin(phase * Math.PI * 2) * 0.25
+            map.setPaintProperty(inflowInfiltrationLayerId, 'line-opacity', opacity)
+            map.setPaintProperty('inflow-infiltration-fill', 'fill-opacity', opacity * 0.8)
+          }
+        } catch (e) {
+          // 图层可能还没准备好
         }
 
         blinkFrameRef.current = window.requestAnimationFrame(animateInflowBlink)
       }
 
+      // 立即启动闪烁动画
       blinkFrameRef.current = window.requestAnimationFrame(animateSiltationBlink)
       blinkFrameRef.current = window.requestAnimationFrame(animateInflowBlink)
+
+      // 晴雨比超限区域蓝色呼吸闪烁动画
+      const animateRainDrop = (timestamp: number) => {
+        if (map.getLayer('rain-alert-fill') || map.getLayer(rainAlertLayerId)) {
+          const phase = (timestamp % blinkDurationMs) / blinkDurationMs
+          const opacity = 0.6 + Math.sin(phase * Math.PI * 2) * 0.35
+
+          try {
+            if (map.getLayer('rain-alert-fill')) {
+              map.setPaintProperty('rain-alert-fill', 'fill-opacity', opacity)
+            }
+            if (map.getLayer(rainAlertLayerId)) {
+              map.setPaintProperty(rainAlertLayerId, 'line-opacity', opacity * 0.9)
+            }
+          } catch (e) {
+            // 图层可能还没准备好
+          }
+        }
+
+        rainDropFrameRef.current = window.requestAnimationFrame(animateRainDrop)
+      }
+
+      // 立即启动呼吸动画
+      rainDropFrameRef.current = window.requestAnimationFrame(animateRainDrop)
 
       map.fitBounds(dataset.bounds, {
         padding: {
@@ -1299,6 +1544,11 @@ export function useMapLibre({
       if (blinkFrameRef.current !== null) {
         window.cancelAnimationFrame(blinkFrameRef.current)
         blinkFrameRef.current = null
+      }
+
+      if (rainDropFrameRef.current !== null) {
+        window.cancelAnimationFrame(rainDropFrameRef.current)
+        rainDropFrameRef.current = null
       }
 
       for (const marker of siteMarkersRef.current) {

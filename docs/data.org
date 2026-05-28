@@ -1,0 +1,5 @@
+#+title: Data
+* 监测点类型
+#+BEGIN_SRC json
+{"code":"00000","data":[{"code":"GULLY_POT","value":"雨水井"},{"code":"BILGE_WELL","value":"污水井"},{"code":"PUMP_STATION","value":"泵站"},{"code":"OUTLET","value":"排口"}],"msg":"SUCCESS"}
+#+END_SRC

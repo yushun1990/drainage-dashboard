@@ -132,3 +132,37 @@ export interface DailyFlowData {
   date: string               // 日期 MM-DD
   flow: number              // 进水量 (万m³)
 }
+
+// 雨污混接预警类型
+export type RainSewageMixingType = 'rain-to-sewage' | 'sewage-to-rain'
+
+// 雨污混接预警详情数据
+export interface MixingAlarmDetail {
+  siteId: string
+  alarmType: RainSewageMixingType
+  alarmTime: string
+  alarmLevel: AlarmLevel
+  description: string
+  // 支撑数据
+  rainfallData: DailyRainfallData[]      // 近7日降雨量
+  waterQualityData: WaterQualityData[]   // 近7日水质指标
+  flowData: DailyFlowData[]               // 近7日流量数据
+  upstreamDownstreamDiff: WaterQualityDiffData[]  // 上下游水质差
+}
+
+export interface DailyRainfallData {
+  date: string      // MM-DD
+  rainfall: number  // 降雨量 (mm)
+}
+
+export interface WaterQualityDiffData {
+  date: string
+  codDiff: number   // COD差值 (当前点 - 上游点) mg/L
+  phDiff: number
+  conductivityDiff: number  // 电导率差值 μS/cm
+}
+
+export interface SiteFlowData {
+  date: string      // MM-DD
+  flow: number      // 流量 (L/s)
+}

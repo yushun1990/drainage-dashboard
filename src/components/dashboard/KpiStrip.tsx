@@ -18,7 +18,7 @@ export function KpiStrip({ metrics }: KpiStripProps) {
     >
       {metrics.map((metric) => (
         <article
-          className={`w-fit min-w-40 rounded border bg-[#064b70]/70 px-4 py-3 shadow-[0_0_26px_rgba(56,189,248,0.28),inset_0_0_18px_rgba(14,165,233,0.12)] ${statusClassName[metric.status]}`}
+          className={`w-fit min-w-40 rounded border bg-[#064466]/76 px-4 py-3 shadow-[0_0_24px_rgba(56,189,248,0.24),inset_0_0_18px_rgba(14,165,233,0.12)] backdrop-blur-sm ${statusClassName[metric.status]}`}
           key={metric.id}
         >
           <p className="text-xs text-cyan-100/80">{metric.label}</p>
