@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { AlarmTicker } from '../alerts/AlarmTicker'
 import { KpiStrip } from '../dashboard/KpiStrip'
 import { RainRatioChart } from '../dashboard/RainRatioChart'
@@ -144,7 +145,12 @@ export function DashboardShell() {
               </div>
             </div>
             <h1 className="relative z-10 text-center text-3xl font-semibold text-white drop-shadow-[0_0_12px_rgba(125,211,252,0.9)]">
-              <span>排水管网运行智能分析平台</span>
+              <Link
+                to="/admin"
+                className="transition-all duration-300 hover:opacity-80 hover:drop-shadow-[0_0_16px_rgba(125,211,252,1)]"
+              >
+                排水管网运行智能分析平台
+              </Link>
             </h1>
             <div className="relative z-10 flex items-center justify-end px-4">
               <div className="flex items-center gap-5 text-sm text-cyan-100/72">
