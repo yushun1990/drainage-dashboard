@@ -22,6 +22,8 @@ interface UseMapLibreOptions {
   dataset: DrainageMapDataset
   interactive?: boolean
   districtAreas?: FeatureCollection
+  showFocusMask?: boolean
+  onMapReady?: (map: maplibregl.Map, toggleFocusMask: (show: boolean) => void) => void
 }
 
 interface MutableGeoJsonSource {
@@ -59,6 +61,7 @@ const siteMarkerMinScaleZoom = 13
 const siteMarkerMaxScaleZoom = 16
 const siteMarkerMinVisibleZoom = 14.3
 const siteMarkerShowAllZoom = 15.3
+const mixingAlarmSiteIds = new Set(['site-133', 'site-155'])
 const pipeFlowDurationMs = 2600
 const blinkDurationMs = 2000
 
@@ -153,8 +156,8 @@ function updateSiteMarkerScale(
 }
 
 function buildSitePopupContent(point: DrainageMapPoint): HTMLElement {
-  // 站点155：渲染雨污混接预警弹窗（包含图表）
-  if (point.id === 'site-155') {
+  // 雨污混接预警站点：渲染包含图表的弹窗
+  if (mixingAlarmSiteIds.has(point.id)) {
     const wrapper = document.createElement('div')
     wrapper.className = 'drainage-mixing-popup'
 
@@ -322,9 +325,9 @@ function addMonitoringSiteMarkers(
       activePopupRef.current?.remove()
       closeOtherPopups?.()
 
-      // 站点155使用更大的弹窗宽度以显示图表
-      const maxWidth = point.id === 'site-155' ? '420px' : '240px'
-      const offset = point.id === 'site-155' ? 12 : 18
+      const isMixingAlarmSite = mixingAlarmSiteIds.has(point.id)
+      const maxWidth = isMixingAlarmSite ? '440px' : '240px'
+      const offset = isMixingAlarmSite ? 12 : 18
 
       const popup = new maplibregl.Popup({
         anchor: 'bottom',
@@ -333,7 +336,7 @@ function addMonitoringSiteMarkers(
         focusAfterOpen: false,
         maxWidth,
         offset,
-        className: point.id === 'site-155' ? 'drainage-mixing-popup-wrapper' : 'drainage-site-popup',
+        className: isMixingAlarmSite ? 'drainage-mixing-popup-wrapper' : 'drainage-site-popup',
       })
         .setLngLat(point.coordinate)
         .setDOMContent(buildSitePopupContent(point))
@@ -618,16 +621,17 @@ function addTiandituDetailLayers(map: maplibregl.Map) {
           14,
           0,
           14.7,
-          0.34,
+          0.28,
           16,
-          0.48,
+          0.42,
           17,
-          0.56,
+          0.5,
         ],
-        'raster-saturation': -0.36,
-        'raster-contrast': -0.08,
-        'raster-brightness-min': 0.08,
-        'raster-brightness-max': 0.74,
+        'raster-saturation': -0.6,
+        'raster-contrast': 0.1,
+        'raster-brightness-min': -0.15,
+        'raster-brightness-max': 0.5,
+        'raster-hue-rotate': -10,
       },
     },
     beforeLayerId,
@@ -646,16 +650,17 @@ function addTiandituDetailLayers(map: maplibregl.Map) {
           14,
           0,
           14.7,
-          0.42,
+          0.35,
           16,
-          0.68,
+          0.55,
           17,
-          0.78,
+          0.65,
         ],
-        'raster-saturation': -0.2,
-        'raster-contrast': -0.05,
-        'raster-brightness-min': 0,
-        'raster-brightness-max': 0.86,
+        'raster-saturation': -0.5,
+        'raster-contrast': 0.05,
+        'raster-brightness-min': -0.1,
+        'raster-brightness-max': 0.6,
+        'raster-hue-rotate': -8,
       },
     },
     beforeLayerId,
@@ -1358,6 +1363,8 @@ export function useMapLibre({
   dataset,
   interactive = true,
   districtAreas,
+  showFocusMask = true,
+  onMapReady,
 }: UseMapLibreOptions) {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const siteMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1366,14 +1373,80 @@ export function useMapLibre({
   const pipeFlowFrameRef = useRef<number | null>(null)
   const blinkFrameRef = useRef<number | null>(null)
   const rainDropFrameRef = useRef<number | null>(null)
+  const toggleFocusMaskRef = useRef<((show: boolean) => void) | null>(null)
   const geoJsonDataset = useMemo(() => buildDrainageGeoJson(dataset), [dataset])
+
+  // 创建切换遮罩的函数（始终使用 fiord 样式，只添加/移除遮罩图层）
+  const createToggleFocusMask = (map: maplibregl.Map) => {
+    return (show: boolean) => {
+      const closeAllPopups = () => {
+        activeSitePopupRef.current?.remove()
+        activeSitePopupRef.current = null
+        activeDistrictPopupRef.current?.remove()
+        activeDistrictPopupRef.current = null
+      }
+
+      if (show) {
+        // 显示遮罩：添加汾口镇遮罩图层
+        if (!map.getSource(fenkouMaskSourceId)) {
+          addFenkouFocusLayers(map, dataset.focusBoundary)
+        }
+      } else {
+        // 隐藏遮罩：移除汾口镇遮罩图层
+        const layersToRemove = [
+          'fenkou-outside-mask',
+          'fenkou-focus-wall',
+          'fenkou-focus-outline-halo',
+          'fenkou-focus-outline-glow',
+          'fenkou-focus-outline',
+        ]
+        for (const layerId of layersToRemove) {
+          if (map.getLayer(layerId)) {
+            map.removeLayer(layerId)
+          }
+        }
+        if (map.getSource(fenkouMaskSourceId)) {
+          map.removeSource(fenkouMaskSourceId)
+        }
+        if (map.getSource(fenkouFocusSourceId)) {
+          map.removeSource(fenkouFocusSourceId)
+        }
+      }
+
+      // 关闭所有弹窗
+      closeAllPopups()
+    }
+  }
+
+  // 单独处理 showFocusMask 变化
+  const prevShowFocusMaskRef = useRef(showFocusMask)
+  const isMapReadyRef = useRef(false)
+
+  useEffect(() => {
+    const map = mapRef.current
+    // 防止重复更新
+    if (prevShowFocusMaskRef.current === showFocusMask) {
+      return
+    }
+    prevShowFocusMaskRef.current = showFocusMask
+
+    if (!map || !toggleFocusMaskRef.current || !isMapReadyRef.current) {
+      return
+    }
+    toggleFocusMaskRef.current(showFocusMask)
+  }, [showFocusMask])
 
   useEffect(() => {
     const container = containerRef.current
 
+    console.log('[useMapLibre] useEffect 触发', { container: !!container, mapExists: !!mapRef.current })
+
     if (!container || mapRef.current) {
+      console.log('[useMapLibre] 跳过初始化:', { noContainer: !container, mapExists: !!mapRef.current })
       return
     }
+
+    console.log('[useMapLibre] 初始化地图')
 
     const map = new maplibregl.Map({
       container,
@@ -1409,7 +1482,9 @@ export function useMapLibre({
 
       addTiandituDetailLayers(map)
       addBuildingExtrusionLayer(map)
-      addFenkouFocusLayers(map, dataset.focusBoundary)
+      if (showFocusMask) {
+        addFenkouFocusLayers(map, dataset.focusBoundary)
+      }
       addWaterwayLayers(map, geoJsonDataset)
       addDrainageLayers(map, geoJsonDataset)
       siteMarkersRef.current = addMonitoringSiteMarkers(
@@ -1450,7 +1525,7 @@ export function useMapLibre({
             map.setPaintProperty(siltationLayerId, 'line-opacity', opacity)
             map.setPaintProperty('siltation-fill', 'fill-opacity', opacity * 0.8)
           }
-        } catch (e) {
+        } catch {
           // 图层可能还没准备好
         }
 
@@ -1466,7 +1541,7 @@ export function useMapLibre({
             map.setPaintProperty(inflowInfiltrationLayerId, 'line-opacity', opacity)
             map.setPaintProperty('inflow-infiltration-fill', 'fill-opacity', opacity * 0.8)
           }
-        } catch (e) {
+        } catch {
           // 图层可能还没准备好
         }
 
@@ -1490,7 +1565,7 @@ export function useMapLibre({
             if (map.getLayer(rainAlertLayerId)) {
               map.setPaintProperty(rainAlertLayerId, 'line-opacity', opacity * 0.9)
             }
-          } catch (e) {
+          } catch {
             // 图层可能还没准备好
           }
         }
@@ -1520,6 +1595,15 @@ export function useMapLibre({
         duration: 0,
       })
       logMapZoom(map)
+
+      // 标记地图已准备好
+      isMapReadyRef.current = true
+
+      // 保存切换函数引用
+      toggleFocusMaskRef.current = createToggleFocusMask(map)
+
+      // 通过回调暴露地图实例和遮罩切换函数
+      onMapReady?.(map, toggleFocusMaskRef.current)
     }
 
     map.once('load', handleLoad)
@@ -1533,6 +1617,7 @@ export function useMapLibre({
     map.on('zoomend', handleZoomEnd)
 
     return () => {
+      console.log('[useMapLibre] 清理地图')
       map.off('zoom', handleZoom)
       map.off('zoomend', handleZoomEnd)
 
@@ -1562,10 +1647,14 @@ export function useMapLibre({
       activeDistrictPopupRef.current?.remove()
       activeDistrictPopupRef.current = null
 
+      isMapReadyRef.current = false
+      toggleFocusMaskRef.current = null
+
       map.remove()
       mapRef.current = null
     }
-  }, [containerRef, dataset, geoJsonDataset, interactive, districtAreas])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataset, interactive, districtAreas])
 
   useEffect(() => {
     const map = mapRef.current

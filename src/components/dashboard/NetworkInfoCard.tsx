@@ -30,7 +30,7 @@ export function NetworkInfoCard({ data, className = '' }: NetworkInfoCardProps) 
           color: '#e0f2fe',
           fontSize: 12,
         },
-        formatter: (params: any) => {
+        formatter: (params: { name: string; value: number }) => {
           const values = [data.rainPipeLength, data.sewagePipeLength, data.mixedPipeLength]
           const total = values.reduce((a, b) => a + b, 0)
           const percent = ((params.value / total) * 100).toFixed(1)
@@ -60,7 +60,7 @@ export function NetworkInfoCard({ data, className = '' }: NetworkInfoCardProps) 
           label: {
             show: true,
             position: 'outside',
-            formatter: (params: any) => {
+            formatter: (params: { name: string; value: number }) => {
               const values = [data.rainPipeLength, data.sewagePipeLength, data.mixedPipeLength]
               const total = values.reduce((a, b) => a + b, 0)
               const percent = ((params.value / total) * 100).toFixed(1)

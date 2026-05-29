@@ -6,9 +6,20 @@ interface WaterQualityDetailChartProps {
   data: WaterQualityData[]
 }
 
+function buildAxisRange(values: number[], step: number): { min: number; max: number } {
+  const minValue = Math.min(...values)
+  const maxValue = Math.max(...values)
+  const padding = Math.max((maxValue - minValue) * 0.16, step)
+
+  return {
+    min: Math.floor((minValue - padding) / step) * step,
+    max: Math.ceil((maxValue + padding) / step) * step,
+  }
+}
+
 export function WaterQualityDetailChart({ data }: WaterQualityDetailChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<any>(null)
+  const chartInstance = useRef<echarts.ECharts | null>(null)
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -18,13 +29,19 @@ export function WaterQualityDetailChart({ data }: WaterQualityDetailChartProps) 
     }
 
     const chart = chartInstance.current
+    const codValues = data.map((d) => d.cod)
+    const phValues = data.map((d) => d.ph)
+    const conductivityValues = data.map((d) => d.cod * 7.5 + 100)
+    const codRange = buildAxisRange(codValues, 20)
+    const phRange = buildAxisRange(phValues, 0.5)
+    const conductivityRange = buildAxisRange(conductivityValues, 100)
 
     const option = {
       grid: {
         left: '6%',
         right: '10%',
-        top: '16%',
-        bottom: '8%',
+        top: '26%',
+        bottom: '12%',
         containLabel: false,
       },
       tooltip: {
@@ -51,7 +68,7 @@ export function WaterQualityDetailChart({ data }: WaterQualityDetailChartProps) 
           color: '#7dd3fc',
           fontSize: 10,
         },
-        top: '0%',
+        top: 2,
         left: 'center',
         itemWidth: 12,
         itemHeight: 8,
@@ -106,7 +123,8 @@ export function WaterQualityDetailChart({ data }: WaterQualityDetailChartProps) 
               color: 'rgba(239, 68, 68, 0.4)',
             },
           },
-          max: 100,
+          min: codRange.min,
+          max: codRange.max,
         },
         {
           type: 'value',
@@ -131,8 +149,8 @@ export function WaterQualityDetailChart({ data }: WaterQualityDetailChartProps) 
               color: 'rgba(167, 139, 250, 0.4)',
             },
           },
-          min: 5,
-          max: 8,
+          min: phRange.min,
+          max: phRange.max,
         },
         {
           type: 'value',
@@ -158,14 +176,15 @@ export function WaterQualityDetailChart({ data }: WaterQualityDetailChartProps) 
               color: 'rgba(34, 197, 94, 0.4)',
             },
           },
-          max: 700,
+          min: conductivityRange.min,
+          max: conductivityRange.max,
         },
       ],
       series: [
         {
           name: 'COD',
           type: 'line',
-          data: data.map((d) => d.cod),
+          data: codValues,
           smooth: true,
           symbol: 'circle',
           symbolSize: 5,
@@ -206,7 +225,7 @@ export function WaterQualityDetailChart({ data }: WaterQualityDetailChartProps) 
           name: 'pH',
           type: 'line',
           yAxisIndex: 1,
-          data: data.map((d) => d.ph),
+          data: phValues,
           smooth: true,
           symbol: 'circle',
           symbolSize: 4,
@@ -235,7 +254,7 @@ export function WaterQualityDetailChart({ data }: WaterQualityDetailChartProps) 
           name: '电导率',
           type: 'line',
           yAxisIndex: 2,
-          data: data.map((d) => d.cod * 7.5 + 100), // 模拟电导率数据（与COD相关）
+          data: conductivityValues,
           smooth: true,
           symbol: 'triangle',
           symbolSize: 5,

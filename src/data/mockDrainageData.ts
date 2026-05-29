@@ -10,6 +10,7 @@ import type {
   DailyRainRatioData,
   DailyFlowData,
 } from '../types/drainage'
+import { formatMonthDayTime, subtractMinutes } from '../utils/dateUtils'
 
 export const kpiMetrics: KpiMetric[] = [
   {
@@ -241,29 +242,40 @@ export const drainageMapDataset: DrainageMapDataset = {
   riskAreas: [],
 }
 
-export const drainageAlarms: DrainageAlarm[] = [
+type DrainageAlarmTemplate = Omit<DrainageAlarm, 'time'> & {
+  offsetMinutes: number
+}
+
+const drainageAlarmTemplates: DrainageAlarmTemplate[] = [
   {
     id: 'alarm-001',
-    time: '05-28 09:18',
+    offsetMinutes: 18,
     level: 'high',
     location: '城东 2 号污水井',
     message: '水质突变疑似雨污混接',
   },
   {
     id: 'alarm-002',
-    time: '05-28 09:42',
+    offsetMinutes: 42,
     level: 'medium',
     location: '滨河片区',
     message: '晴雨比高于基准阈值',
   },
   {
     id: 'alarm-003',
-    time: '05-28 10:05',
+    offsetMinutes: 65,
     level: 'low',
     location: '纬三路管段',
     message: '上下游水位差持续扩大',
   },
 ]
+
+export function getDrainageAlarms(currentTime = new Date()): DrainageAlarm[] {
+  return drainageAlarmTemplates.map(({ offsetMinutes, ...alarm }) => ({
+    ...alarm,
+    time: formatMonthDayTime(subtractMinutes(currentTime, offsetMinutes)),
+  }))
+}
 
 export const districtRainRatios: DistrictRainRatio[] = [
   { district: '汾口镇', rainyWeatherFlow: 42.8, dryWeatherFlow: 17.5, ratio: 2.45 },

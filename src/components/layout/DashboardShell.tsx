@@ -1,3 +1,4 @@
+import { useState, useCallback, useMemo } from 'react'
 import { AlarmTicker } from '../alerts/AlarmTicker'
 import { KpiStrip } from '../dashboard/KpiStrip'
 import { RainRatioChart } from '../dashboard/RainRatioChart'
@@ -7,8 +8,8 @@ import { WaterQualityChart } from '../dashboard/WaterQualityChart'
 import { NetworkInfoCard } from '../dashboard/NetworkInfoCard'
 import { MapViewport } from '../map/MapViewport'
 import {
-  drainageAlarms,
   drainageMapDataset,
+  getDrainageAlarms,
   kpiMetrics,
   mapLayerSummaries,
   districtRainRatios,
@@ -21,6 +22,9 @@ import { pipelinePipes, pipelineWells } from '../../data/pipelineGisData'
 import { monitoringSites } from '../../data/monitoringSiteData'
 import { buildMapLayerSummaries } from '../../utils/buildMapLayerSummaries'
 import { buildDistrictGeoJson } from '../../utils/districtUtils'
+import { formatDateTime } from '../../utils/dateUtils'
+import { useCurrentTime } from '../../hooks/useCurrentTime'
+import maplibregl from 'maplibre-gl'
 
 function CloudIcon() {
   return (
@@ -80,47 +84,69 @@ function UserIcon() {
 }
 
 export function DashboardShell() {
-  const mapDataset = { ...drainageMapDataset, pipes: pipelinePipes }
-  const mapDatasetWithWells = {
-    ...mapDataset,
-    points: [...pipelineWells, ...monitoringSites],
-  }
-  const layerSummaries = buildMapLayerSummaries(
-    mapLayerSummaries,
-    pipelinePipes,
-    pipelineWells,
+  const [showFocusMask, setShowFocusMask] = useState(true)
+  const [toggleFocusMask, setToggleFocusMask] = useState<((show: boolean) => void) | null>(null)
+  const currentTime = useCurrentTime()
+  const currentTimeText = useMemo(() => formatDateTime(currentTime), [currentTime])
+  const alarms = useMemo(() => getDrainageAlarms(currentTime), [currentTime])
+
+  const mapDatasetWithWells = useMemo(
+    () => ({
+      ...drainageMapDataset,
+      pipes: pipelinePipes,
+      points: [...pipelineWells, ...monitoringSites],
+    }),
+    [],
+  )
+
+  const layerSummaries = useMemo(
+    () => buildMapLayerSummaries(mapLayerSummaries, pipelinePipes, pipelineWells),
+    [],
   )
 
   // 使用工具函数将区域数据转换为 GeoJSON 格式
-  const districtGeoJson = buildDistrictGeoJson()
+  const districtGeoJson = useMemo(() => buildDistrictGeoJson(), [])
+
+  const handleToggleMask = () => {
+    const newValue = !showFocusMask
+    setShowFocusMask(newValue)
+    toggleFocusMask?.(newValue)
+  }
+
+  const handleMapReady = useCallback((_map: maplibregl.Map, toggleFn: (show: boolean) => void) => {
+    setToggleFocusMask(() => toggleFn)
+  }, [])
 
   return (
-    <main className="relative h-screen min-h-[720px] overflow-hidden bg-[#021927] px-4 pb-4 text-cyan-50">
-      <div className="absolute inset-0 z-0">
+    <main className="relative h-screen min-h-[720px] overflow-hidden bg-[#021927] pb-4 text-cyan-50">
+      <div className="absolute inset-0">
         <MapViewport
           dataset={mapDatasetWithWells}
           interactive
           layers={layerSummaries}
           showChrome={false}
           districtAreas={districtGeoJson}
+          showFocusMask={showFocusMask}
+          onMapReady={handleMapReady}
         />
       </div>
       <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_center_top,rgba(21,176,255,0.05),transparent_34%),linear-gradient(180deg,rgba(1,12,22,0.08)_0%,rgba(2,23,36,0.04)_48%,rgba(1,10,18,0.16)_100%)]" />
+
       <div className="pointer-events-none relative z-10 flex h-full flex-col gap-3">
         <div className="pointer-events-auto relative h-[72px] shrink-0">
-          <header className="relative grid h-16 grid-cols-[1fr_1.5fr_1fr] items-center gap-4 overflow-hidden bg-[linear-gradient(180deg,rgba(2,15,28,0.78)_0%,rgba(3,27,43,0.48)_62%,rgba(3,34,52,0.08)_100%)] px-5 shadow-[0_8px_24px_rgba(0,0,0,0.22),inset_0_-28px_34px_rgba(2,23,36,0.24)]">
-            <div className="relative z-10 flex items-center">
-              <div className="flex items-center gap-2 px-1 text-sm text-cyan-100/72">
+          <header className="relative grid h-16 grid-cols-[1fr_1.5fr_1fr] items-center gap-4 overflow-hidden bg-[linear-gradient(180deg,rgba(2,15,28,0.78)_0%,rgba(3,27,43,0.48)_62%,rgba(3,34,52,0.08)_100%)] shadow-[0_8px_24px_rgba(0,0,0,0.22),inset_0_-28px_34px_rgba(2,23,36,0.24)]">
+            <div className="relative z-10 flex items-center px-4">
+              <div className="flex items-center gap-2 text-sm text-cyan-100/72">
                 <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.85)]" />
                 <span className="font-medium tabular-nums tracking-wide">
-                  2026-05-27 14:30:18
+                  {currentTimeText}
                 </span>
               </div>
             </div>
             <h1 className="relative z-10 text-center text-3xl font-semibold text-white drop-shadow-[0_0_12px_rgba(125,211,252,0.9)]">
               <span>排水管网运行智能分析平台</span>
             </h1>
-            <div className="relative z-10 flex items-center justify-end">
+            <div className="relative z-10 flex items-center justify-end px-4">
               <div className="flex items-center gap-5 text-sm text-cyan-100/72">
                 <div className="flex items-center gap-2">
                   <CloudIcon />
@@ -192,8 +218,8 @@ export function DashboardShell() {
           </svg>
         </div>
 
-        <section className="grid min-h-0 flex-1 grid-cols-[320px_1fr_320px] gap-3">
-          <aside className="pointer-events-auto min-h-0">
+        <section className="grid min-h-0 flex-1 grid-cols-[320px_1fr_320px] gap-0">
+          <aside className="pointer-events-auto min-h-0 px-4">
             <div className="flex h-full flex-col gap-3">
               {/* 水质趋势图表 */}
               <article className="flex flex-1 flex-col rounded border border-cyan-200/28 bg-[#053452]/48 shadow-[0_0_24px_rgba(56,189,248,0.16),inset_0_0_18px_rgba(8,145,178,0.1)] backdrop-blur-sm">
@@ -234,11 +260,26 @@ export function DashboardShell() {
               <KpiStrip metrics={kpiMetrics} />
             </div>
             <div
-              className="min-h-0 flex-1"
+              className="relative min-h-0 flex-1"
               aria-label="GIS 地图主展示区域"
-            />
+            >
+              {/* 演示区域遮罩开关按钮 */}
+              <button
+                type="button"
+                onClick={handleToggleMask}
+                className="pointer-events-auto absolute bottom-4 right-4 z-10 h-5 w-10 rounded-full border border-cyan-500/20 bg-cyan-950/40 shadow-[0_0_8px_rgba(34,211,238,0.15)] backdrop-blur-sm transition-all duration-300 hover:border-cyan-400/30 hover:shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+                aria-label={showFocusMask ? '隐藏演示区域遮罩' : '显示演示区域遮罩'}
+                title={showFocusMask ? '隐藏演示区域遮罩' : '显示演示区域遮罩'}
+              >
+                <span
+                  className={`absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-white shadow-[0_2px_4px_rgba(0,0,0,0.2)] transition-all duration-300 ${
+                    showFocusMask ? 'left-[calc(100%-0.875rem-0.25rem)] bg-cyan-300' : 'left-1 bg-gray-400'
+                  }`}
+                />
+              </button>
+            </div>
           </section>
-          <aside className="pointer-events-auto min-h-0">
+          <aside className="pointer-events-auto min-h-0 px-4">
             <div className="flex h-full min-h-0 flex-col gap-3">
               <div className="min-h-0 flex-1">
                 <NetworkInfoCard data={networkStatistics} />
@@ -253,7 +294,7 @@ export function DashboardShell() {
                 </div>
               </article>
               <div className="min-h-0 flex-1">
-                <AlarmTicker alarms={drainageAlarms} variant="card" />
+                <AlarmTicker alarms={alarms} variant="card" />
               </div>
             </div>
           </aside>

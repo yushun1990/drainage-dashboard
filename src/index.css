@@ -51,6 +51,16 @@ select {
   animation: site-marker-alarm-pulse 1.1s ease-in-out infinite;
 }
 
+.maplibregl-popup {
+  z-index: 9999;
+}
+
+.drainage-site-popup,
+.drainage-district-popup,
+.drainage-mixing-popup-wrapper {
+  z-index: 10000;
+}
+
 .alarm-scroll-y {
   animation: alarm-scroll-y 14s linear infinite;
 }
@@ -144,7 +154,8 @@ select {
 
 /* 雨污混接预警弹窗样式 */
 .drainage-mixing-popup-wrapper .maplibregl-popup-content {
-  overflow: visible;
+  overflow: hidden;
+  max-height: min(460px, calc(100vh - 180px));
   border: 1px solid rgb(239 68 68 / 40%);
   border-radius: 8px;
   background: rgb(15 23 42 / 98%);
@@ -156,16 +167,58 @@ select {
   backdrop-filter: blur(12px);
 }
 
+.drainage-mixing-popup {
+  max-height: inherit;
+}
+
+.drainage-mixing-popup-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(460px, calc(100vh - 180px));
+  overflow: hidden;
+}
+
+.drainage-mixing-popup-scroll {
+  flex: 1 1 auto;
+  height: 180px;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.drainage-mixing-popup-chart-stage {
+  position: relative;
+  height: 128px;
+  overflow: hidden;
+}
+
+.drainage-mixing-popup-chart {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  height: 128px;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
 .drainage-mixing-popup-wrapper .maplibregl-popup-tip {
   border-top-color: rgb(15 23 42 / 98%);
   border-bottom-color: rgb(15 23 42 / 98%);
 }
 
 .drainage-mixing-popup-wrapper .maplibregl-popup-close-button {
+  top: 8px;
+  right: 8px;
+  display: flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
   color: rgb(148 163 184);
   font-size: 18px;
-  line-height: 20px;
-  padding: 4px 6px;
+  line-height: 1;
+  padding: 0;
   transition: color 0.15s;
   border-radius: 4px;
   z-index: 10;

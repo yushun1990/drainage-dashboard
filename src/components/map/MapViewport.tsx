@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import maplibregl from 'maplibre-gl'
 import { useMapLibre } from '../../hooks/useMapLibre'
 import type { DrainageMapDataset, MapLayerSummary } from '../../types/drainage'
 import type { FeatureCollection } from 'geojson'
@@ -10,6 +11,8 @@ interface MapViewportProps {
   showChrome?: boolean
   interactive?: boolean
   districtAreas?: FeatureCollection
+  showFocusMask?: boolean
+  onMapReady?: (map: maplibregl.Map, toggleFocusMask: (show: boolean) => void) => void
 }
 
 const layerStatusClassName: Record<MapLayerSummary['status'], string> = {
@@ -25,6 +28,8 @@ export function MapViewport({
   layers,
   showChrome = true,
   districtAreas,
+  showFocusMask = true,
+  onMapReady,
 }: MapViewportProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
 
@@ -33,6 +38,8 @@ export function MapViewport({
     dataset,
     interactive,
     districtAreas,
+    showFocusMask,
+    onMapReady,
   })
 
   return (
@@ -45,8 +52,6 @@ export function MapViewport({
       aria-label="汾口镇排水管网 GIS 地图"
     >
       <div ref={mapContainerRef} className="absolute inset-0 h-full w-full" />
-      <div className="pointer-events-none absolute inset-0 bg-[rgba(4,47,70,0.1)] mix-blend-screen" />
-      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_54px_rgba(1,8,16,0.44),inset_0_0_110px_rgba(2,132,199,0.06)]" />
 
       {showChrome ? (
         <div className="absolute left-5 top-5 rounded border border-cyan-100/35 bg-[#053852]/75 p-4 shadow-[0_0_22px_rgba(56,189,248,0.28)] backdrop-blur-sm">

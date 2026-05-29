@@ -6,9 +6,20 @@ interface WaterQualityDiffChartProps {
   data: WaterQualityDiffData[]
 }
 
+function buildAxisRange(values: number[], step: number): { min: number; max: number } {
+  const minValue = Math.min(...values)
+  const maxValue = Math.max(...values)
+  const padding = Math.max((maxValue - minValue) * 0.16, step)
+
+  return {
+    min: Math.floor((minValue - padding) / step) * step,
+    max: Math.ceil((maxValue + padding) / step) * step,
+  }
+}
+
 export function WaterQualityDiffChart({ data }: WaterQualityDiffChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<any>(null)
+  const chartInstance = useRef<echarts.ECharts | null>(null)
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -18,13 +29,17 @@ export function WaterQualityDiffChart({ data }: WaterQualityDiffChartProps) {
     }
 
     const chart = chartInstance.current
+    const codDiffValues = data.map((d) => d.codDiff)
+    const conductivityDiffValues = data.map((d) => d.conductivityDiff)
+    const codDiffRange = buildAxisRange(codDiffValues, 20)
+    const conductivityDiffRange = buildAxisRange(conductivityDiffValues, 100)
 
     const option = {
       grid: {
         left: '8%',
         right: '8%',
-        top: '16%',
-        bottom: '10%',
+        top: '26%',
+        bottom: '13%',
         containLabel: false,
       },
       tooltip: {
@@ -51,7 +66,7 @@ export function WaterQualityDiffChart({ data }: WaterQualityDiffChartProps) {
           color: '#7dd3fc',
           fontSize: 10,
         },
-        top: '0%',
+        top: 2,
         left: 'center',
         itemWidth: 12,
         itemHeight: 8,
@@ -106,7 +121,8 @@ export function WaterQualityDiffChart({ data }: WaterQualityDiffChartProps) {
               color: 'rgba(249, 115, 22, 0.4)',
             },
           },
-          max: 80,
+          min: codDiffRange.min,
+          max: codDiffRange.max,
         },
         {
           type: 'value',
@@ -131,14 +147,15 @@ export function WaterQualityDiffChart({ data }: WaterQualityDiffChartProps) {
               color: 'rgba(6, 182, 212, 0.4)',
             },
           },
-          max: 500,
+          min: conductivityDiffRange.min,
+          max: conductivityDiffRange.max,
         },
       ],
       series: [
         {
           name: 'COD差值',
           type: 'line',
-          data: data.map((d) => d.codDiff),
+          data: codDiffValues,
           smooth: true,
           symbol: 'circle',
           symbolSize: 6,
@@ -200,7 +217,7 @@ export function WaterQualityDiffChart({ data }: WaterQualityDiffChartProps) {
           name: '电导率差值',
           type: 'line',
           yAxisIndex: 1,
-          data: data.map((d) => d.conductivityDiff),
+          data: conductivityDiffValues,
           smooth: true,
           symbol: 'triangle',
           symbolSize: 5,

@@ -7,9 +7,14 @@ interface RainfallFlowChartProps {
   flowData: SiteFlowData[]
 }
 
+function buildAxisMax(values: number[], minStep: number): number {
+  const maxValue = Math.max(...values, minStep)
+  return Math.ceil((maxValue * 1.18) / minStep) * minStep
+}
+
 export function RainfallFlowChart({ rainfallData, flowData }: RainfallFlowChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<any>(null)
+  const chartInstance = useRef<echarts.ECharts | null>(null)
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -19,13 +24,15 @@ export function RainfallFlowChart({ rainfallData, flowData }: RainfallFlowChartP
     }
 
     const chart = chartInstance.current
+    const rainfallAxisMax = buildAxisMax(rainfallData.map((d) => d.rainfall), 5)
+    const flowAxisMax = buildAxisMax(flowData.map((d) => d.flow), 100)
 
     const option = {
       grid: {
         left: '8%',
         right: '8%',
-        top: '18%',
-        bottom: '12%',
+        top: '26%',
+        bottom: '13%',
         containLabel: false,
       },
       tooltip: {
@@ -52,7 +59,7 @@ export function RainfallFlowChart({ rainfallData, flowData }: RainfallFlowChartP
           color: '#7dd3fc',
           fontSize: 10,
         },
-        top: '0%',
+        top: 2,
         left: 'center',
         itemWidth: 12,
         itemHeight: 8,
@@ -107,7 +114,7 @@ export function RainfallFlowChart({ rainfallData, flowData }: RainfallFlowChartP
               color: 'rgba(34, 211, 238, 0.4)',
             },
           },
-          max: 35,
+          max: rainfallAxisMax,
         },
         {
           type: 'value',
@@ -132,7 +139,7 @@ export function RainfallFlowChart({ rainfallData, flowData }: RainfallFlowChartP
               color: 'rgba(14, 165, 233, 0.4)',
             },
           },
-          max: 500,
+          max: flowAxisMax,
         },
       ],
       series: [

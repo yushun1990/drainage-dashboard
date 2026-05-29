@@ -9,7 +9,7 @@ interface RainRatioChartProps {
 
 export function RainRatioChart({ data, className = '' }: RainRatioChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<any>(null)
+  const chartInstance = useRef<echarts.ECharts | null>(null)
 
   useEffect(() => {
     if (!chartRef.current) return

@@ -10,7 +10,7 @@ interface DailyRainRatioChartProps {
 
 export function DailyRainRatioChart({ data, className = '' }: DailyRainRatioChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<any>(null)
+  const chartInstance = useRef<echarts.ECharts | null>(null)
 
   // 动态生成最近7天日期
   const dates = useMemo(() => getLast7Days(), [])
@@ -291,7 +291,7 @@ export function DailyRainRatioChart({ data, className = '' }: DailyRainRatioChar
     return () => {
       window.removeEventListener('resize', handleResize)
     }
-  }, [data])
+  }, [data, dates])
 
   return (
     <div

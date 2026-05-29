@@ -10,7 +10,7 @@ interface WaterQualityChartProps {
 
 export function WaterQualityChart({ data, className = '' }: WaterQualityChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<any>(null)
+  const chartInstance = useRef<echarts.ECharts | null>(null)
 
   // 动态生成最近7天日期
   const dates = useMemo(() => getLast7Days(), [])
@@ -220,7 +220,7 @@ export function WaterQualityChart({ data, className = '' }: WaterQualityChartPro
     return () => {
       window.removeEventListener('resize', handleResize)
     }
-  }, [data])
+  }, [data, dates])
 
   return (
     <div

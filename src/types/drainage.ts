@@ -139,6 +139,8 @@ export type RainSewageMixingType = 'rain-to-sewage' | 'sewage-to-rain'
 // 雨污混接预警详情数据
 export interface MixingAlarmDetail {
   siteId: string
+  siteName: string
+  affectedPipe: string
   alarmType: RainSewageMixingType
   alarmTime: string
   alarmLevel: AlarmLevel

@@ -10,7 +10,7 @@ interface DailyFlowChartProps {
 
 export function DailyFlowChart({ data, className = '' }: DailyFlowChartProps) {
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstance = useRef<any>(null)
+  const chartInstance = useRef<echarts.ECharts | null>(null)
 
   // 动态生成最近7天日期
   const dates = useMemo(() => getLast7Days(), [])
@@ -41,10 +41,10 @@ export function DailyFlowChart({ data, className = '' }: DailyFlowChartProps) {
           color: '#e0f2fe',
           fontSize: 11,
         },
-        formatter: (params: any) => {
-          if (params && params.length > 0) {
-            const value = params[0].value
-            return `${params[0].name}<br/>进水量: ${value} m³`
+        formatter: (params: unknown) => {
+          if (Array.isArray(params) && params.length > 0) {
+            const firstParam = params[0] as { name: string; value: number }
+            return `${firstParam.name}<br/>进水量: ${firstParam.value} m³`
           }
           return ''
         },
@@ -178,7 +178,7 @@ export function DailyFlowChart({ data, className = '' }: DailyFlowChartProps) {
     return () => {
       window.removeEventListener('resize', handleResize)
     }
-  }, [data])
+  }, [data, dates])
 
   return (
     <div
