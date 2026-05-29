@@ -261,7 +261,6 @@ const monitoringSiteRecords: MonitoringSiteRecord[] = [
     deviceId: ['209', '203', '206'],
     normalIconUrl: 'image/2023/06/02/8222d2ff-5afb-4a12-90e7-d204dacd3ce2.png',
     alarmIconUrl: 'image/2023/06/02/f51bc235-1287-423c-bea2-1bf0dc7a0c96.png',
-    alarm: true,
   },
   {
     id: '130',

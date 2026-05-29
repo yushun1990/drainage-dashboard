@@ -15,7 +15,11 @@ import type {
 } from '../types/drainage'
 import { buildDrainageGeoJson } from '../utils/buildDrainageGeoJson'
 import type { DistrictData } from '../utils/districtUtils'
+import { dailyRainRatioTrendValues } from '../data/mockDrainageData'
 import { SiteMixingPopup } from '../components/map/SiteMixingPopup'
+import { DistrictInflowPopup } from '../components/map/DistrictInflowPopup'
+import { DistrictSiltationPopup } from '../components/map/DistrictSiltationPopup'
+import { DailyRainRatioChart } from '../components/dashboard/DailyRainRatioChart'
 
 interface UseMapLibreOptions {
   containerRef: RefObject<HTMLDivElement | null>
@@ -43,7 +47,6 @@ const rainAlertSourceId = 'rain-alert-area'
 const rainAlertLayerId = 'rain-alert-effect'
 const waterwaySourceId = 'fenkou-waterways'
 const fenkouFocusSourceId = 'fenkou-focus'
-const fenkouMaskSourceId = 'fenkou-mask'
 const tiandituVectorSourceId = 'tianditu-vector-raster'
 const tiandituVectorLayerId = 'tianditu-vector-raster'
 const tiandituLabelSourceId = 'tianditu-label-raster'
@@ -54,6 +57,7 @@ const mapPitch = 58
 const mapBearing = 0
 const fiordStyleUrl = 'https://tiles.openfreemap.org/styles/fiord'
 const tiandituMinZoom = 14
+const tiandituDetailZoomThreshold = 16
 const tiandituToken = '5ce9baeca773fde9739ec866f9e117f3'
 const siteMarkerMinScale = 0.46
 const siteMarkerMaxScale = 1
@@ -215,85 +219,120 @@ function createInfoItem(label: string, value: string): HTMLElement {
   return item
 }
 
-function buildDistrictPopupContent(district: DistrictData): HTMLElement {
+function buildInflowPopupContent(districtId: string): HTMLElement {
   const wrapper = document.createElement('div')
-  wrapper.className = 'min-w-[200px] text-cyan-50'
+  wrapper.className = 'drainage-inflow-popup'
+
+  const root = createRoot(wrapper)
+  root.render(<DistrictInflowPopup districtId={districtId} />)
+
+  return wrapper
+}
+
+function buildSiltationPopupContent(districtId: string): HTMLElement {
+  const wrapper = document.createElement('div')
+  wrapper.className = 'drainage-siltation-popup'
+
+  const root = createRoot(wrapper)
+  root.render(<DistrictSiltationPopup districtId={districtId} />)
+
+  return wrapper
+}
+
+function buildDistrictPopupContent(
+  district: DistrictData,
+  options: { showRainRatioTrend?: boolean; variant?: 'normal' | 'alert' } = {},
+): HTMLElement {
+  const showRainRatioTrend = options.showRainRatioTrend ?? true
+  const variant = options.variant ?? 'normal'
+  const wrapper = document.createElement('div')
+  wrapper.className = showRainRatioTrend
+    ? `${variant === 'alert' ? 'drainage-rain-alert-popup-panel' : 'drainage-district-popup-panel'} min-w-[360px] max-w-[420px] text-cyan-50`
+    : 'min-w-[200px] text-cyan-50'
+
+  const buildTag = (text: string, className: string) => {
+    const tag = document.createElement('span')
+    tag.className = `inline-flex h-6 items-center rounded border px-2 text-[10px] font-medium leading-none ${className}`
+    tag.textContent = text
+    return tag
+  }
+
+  const statusValue =
+    variant === 'alert'
+      ? '晴雨比异常'
+      : district.status === 'warning'
+        ? '警告'
+        : district.status === 'critical'
+          ? '异常'
+          : '正常'
+  const statusClass =
+    variant === 'alert'
+      ? 'border-red-400/50 bg-red-400/20 text-red-200'
+      : district.status === 'warning'
+        ? 'border-amber-400/40 bg-amber-400/10 text-amber-200'
+        : district.status === 'critical'
+          ? 'border-red-400/40 bg-red-400/10 text-red-200'
+          : 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200'
 
   // Header
   const header = document.createElement('div')
-  header.className = 'px-4 py-2 border-b border-cyan-500/20 bg-cyan-950/95'
+  header.className =
+    variant === 'alert'
+      ? 'flex items-start justify-between gap-2 border-b border-red-400/20 bg-gradient-to-r from-red-950/95 via-slate-950/95 to-cyan-950/95 px-4 py-2 pr-6'
+      : 'flex items-start justify-between gap-2 border-b border-cyan-500/20 bg-cyan-950/95 px-4 py-2 pr-6'
 
   const title = document.createElement('h3')
-  title.className = 'text-sm font-medium text-white'
+  title.className = 'min-w-0 text-sm font-medium text-white'
   title.textContent = district.name
 
-  header.append(title)
+  const titleWrap = document.createElement('div')
+  titleWrap.className = 'min-w-0'
+  titleWrap.append(title)
 
-  // Body
-  const body = document.createElement('div')
-  body.className = 'p-4 space-y-2 bg-cyan-500/20'
+  const tagWrap = document.createElement('div')
+  tagWrap.className = 'min-w-0 pt-0.5'
+  tagWrap.append(buildTag(statusValue, statusClass))
 
-  const idItem = createInfoItem('编号', district.id)
+  header.append(titleWrap, tagWrap)
 
-  const systemValue = district.sewageSystem === 'SEPARATE_SYSTEM' ? '分流制' : '合流制'
-  const systemItem = createInfoItem('排水系统', systemValue)
+  wrapper.append(header)
 
-  let statusValue = '正常'
-  let statusColor = 'text-emerald-400'
-  if (district.status === 'warning') {
-    statusValue = '警告'
-    statusColor = 'text-amber-400'
-  } else if (district.status === 'critical') {
-    statusValue = '异常'
-    statusColor = 'text-red-400'
+  if (showRainRatioTrend && district.rainRatio !== undefined && district.rainRatio !== null) {
+    const chartSection = document.createElement('div')
+    chartSection.className =
+      variant === 'alert'
+        ? 'border-t border-red-400/10 bg-red-950/20 p-3'
+        : 'border-t border-cyan-500/10 bg-cyan-950/45 p-3'
+
+    const chartTitle = document.createElement('div')
+    chartTitle.className = 'mb-2 flex items-center justify-between gap-2'
+
+    const chartTitleText = document.createElement('span')
+    chartTitleText.className =
+      variant === 'alert' ? 'text-xs font-medium text-red-100' : 'text-xs font-medium text-cyan-100'
+    chartTitleText.textContent = '最近一周晴雨比曲线'
+
+    const chartRatio = document.createElement('span')
+    chartRatio.className =
+      variant === 'alert'
+        ? 'rounded border border-red-400/20 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-100'
+        : 'rounded border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-100'
+    chartRatio.textContent = `当前 ${district.rainRatio.toFixed(2)}`
+
+    chartTitle.append(chartTitleText, chartRatio)
+
+    const chartHost = document.createElement('div')
+    chartHost.className =
+      variant === 'alert'
+        ? 'h-[170px] w-full overflow-hidden rounded border border-red-400/10 bg-slate-950/35'
+        : 'h-[150px] w-full overflow-hidden rounded border border-cyan-400/10 bg-cyan-950/35'
+
+    const root = createRoot(chartHost)
+    root.render(<DailyRainRatioChart data={dailyRainRatioTrendValues} className="h-full w-full" />)
+
+    chartSection.append(chartTitle, chartHost)
+    wrapper.append(chartSection)
   }
-
-  const statusItem = document.createElement('div')
-  statusItem.className = 'flex items-center gap-2'
-
-  const statusLabel = document.createElement('span')
-  statusLabel.className = 'text-xs text-cyan-300/90 shrink-0'
-  statusLabel.textContent = '状态：'
-
-  const statusValueSpan = document.createElement('span')
-  statusValueSpan.className = `text-xs ${statusColor}`
-  statusValueSpan.textContent = statusValue
-
-  statusItem.append(statusLabel, statusValueSpan)
-
-  body.append(idItem, systemItem, statusItem)
-
-  // 添加晴雨比数据（如果有）
-  if (district.rainRatio !== undefined && district.rainRatio !== null) {
-    const rainRatioItem = createInfoItem('晴雨比', district.rainRatio.toFixed(2))
-
-    // 根据晴雨比值设置颜色（与地图蓝色渐变一致）
-    let rainRatioStatusColor = 'text-indigo-300'
-    if (district.rainRatio >= 4.0) {
-      rainRatioStatusColor = 'text-white'
-    } else if (district.rainRatio >= 3.5) {
-      rainRatioStatusColor = 'text-indigo-200'
-    } else if (district.rainRatio >= 3.0) {
-      rainRatioStatusColor = 'text-indigo-300'
-    } else if (district.rainRatio >= 2.5) {
-      rainRatioStatusColor = 'text-violet-300'
-    }
-
-    const rainRatioValueSpan = rainRatioItem.querySelector('.text-cyan-100\\/80')
-    if (rainRatioValueSpan) {
-      rainRatioValueSpan.className = `text-xs ${rainRatioStatusColor} font-medium`
-    }
-
-    body.append(rainRatioItem)
-
-    if (district.rainyWeatherFlow !== undefined && district.dryWeatherFlow !== undefined) {
-      const rainyFlowItem = createInfoItem('雨天流量', `${district.rainyWeatherFlow} L/s`)
-      const dryFlowItem = createInfoItem('旱流流量', `${district.dryWeatherFlow} L/s`)
-      body.append(rainyFlowItem, dryFlowItem)
-    }
-  }
-
-  wrapper.append(header, body)
 
   return wrapper
 }
@@ -400,121 +439,92 @@ function buildFocusPolygon(boundary: Coordinate[]): FeatureCollection<Polygon> {
   }
 }
 
-function buildOutsideMask(boundary: Coordinate[]): FeatureCollection<Polygon> {
-  return {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: {},
-        geometry: {
-          type: 'Polygon',
-          coordinates: [
-            [
-              [116.8, 28.2],
-              [120.2, 28.2],
-              [120.2, 30.6],
-              [116.8, 30.6],
-              [116.8, 28.2],
-            ],
-            boundary.toReversed(),
-          ],
-        },
-      },
-    ],
-  }
-}
-
 function addFenkouFocusLayers(map: maplibregl.Map, boundary: Coordinate[]) {
-  map.addSource(fenkouMaskSourceId, {
-    type: 'geojson',
-    data: buildOutsideMask(boundary),
-  })
-  map.addSource(fenkouFocusSourceId, {
-    type: 'geojson',
-    data: buildFocusPolygon(boundary),
-  })
+  if (!map.getSource(fenkouFocusSourceId)) {
+    map.addSource(fenkouFocusSourceId, {
+      type: 'geojson',
+      data: buildFocusPolygon(boundary),
+    })
+  }
 
-  map.addLayer({
-    id: 'fenkou-outside-mask',
-    type: 'fill',
-    source: fenkouMaskSourceId,
-    paint: {
-      'fill-color': '#06111f',
-      'fill-opacity': 0.58,
-    },
-  })
+  if (!map.getLayer('fenkou-focus-wall')) {
+    map.addLayer({
+      id: 'fenkou-focus-wall',
+      type: 'fill-extrusion',
+      source: fenkouFocusSourceId,
+      paint: {
+        'fill-extrusion-color': '#00e5ff',
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          24,
+          16,
+          76,
+        ],
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': 0.24,
+      },
+    })
+  }
 
-  map.addLayer({
-    id: 'fenkou-focus-wall',
-    type: 'fill-extrusion',
-    source: fenkouFocusSourceId,
-    paint: {
-      'fill-extrusion-color': '#00e5ff',
-      'fill-extrusion-height': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        13,
-        24,
-        16,
-        76,
-      ],
-      'fill-extrusion-base': 0,
-      'fill-extrusion-opacity': 0.24,
-    },
-  })
+  if (!map.getLayer('fenkou-focus-outline-halo')) {
+    map.addLayer({
+      id: 'fenkou-focus-outline-halo',
+      type: 'line',
+      source: fenkouFocusSourceId,
+      paint: {
+        'line-color': '#00f5ff',
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          18,
+          16,
+          30,
+        ],
+        'line-opacity': 0.46,
+        'line-blur': 8,
+      },
+    })
+  }
 
-  map.addLayer({
-    id: 'fenkou-focus-outline-halo',
-    type: 'line',
-    source: fenkouFocusSourceId,
-    paint: {
-      'line-color': '#00f5ff',
-      'line-width': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        13,
-        18,
-        16,
-        30,
-      ],
-      'line-opacity': 0.46,
-      'line-blur': 8,
-    },
-  })
+  if (!map.getLayer('fenkou-focus-outline-glow')) {
+    map.addLayer({
+      id: 'fenkou-focus-outline-glow',
+      type: 'line',
+      source: fenkouFocusSourceId,
+      paint: {
+        'line-color': '#22d3ee',
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          7,
+          16,
+          12,
+        ],
+        'line-opacity': 0.9,
+        'line-blur': 2.2,
+      },
+    })
+  }
 
-  map.addLayer({
-    id: 'fenkou-focus-outline-glow',
-    type: 'line',
-    source: fenkouFocusSourceId,
-    paint: {
-      'line-color': '#22d3ee',
-      'line-width': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        13,
-        7,
-        16,
-        12,
-      ],
-      'line-opacity': 0.9,
-      'line-blur': 2.2,
-    },
-  })
-
-  map.addLayer({
-    id: 'fenkou-focus-outline',
-    type: 'line',
-    source: fenkouFocusSourceId,
-    paint: {
-      'line-color': '#ecfeff',
-      'line-width': 2.2,
-      'line-opacity': 1,
-    },
-  })
+  if (!map.getLayer('fenkou-focus-outline')) {
+    map.addLayer({
+      id: 'fenkou-focus-outline',
+      type: 'line',
+      source: fenkouFocusSourceId,
+      paint: {
+        'line-color': '#ecfeff',
+        'line-width': 2.2,
+        'line-opacity': 1,
+      },
+    })
+  }
 }
 
 function addWaterwayLayers(
@@ -629,7 +639,7 @@ function addTiandituDetailLayers(map: maplibregl.Map) {
         ],
         'raster-saturation': -0.6,
         'raster-contrast': 0.1,
-        'raster-brightness-min': -0.15,
+        'raster-brightness-min': 0,
         'raster-brightness-max': 0.5,
         'raster-hue-rotate': -10,
       },
@@ -658,13 +668,41 @@ function addTiandituDetailLayers(map: maplibregl.Map) {
         ],
         'raster-saturation': -0.5,
         'raster-contrast': 0.05,
-        'raster-brightness-min': -0.1,
+        'raster-brightness-min': 0,
         'raster-brightness-max': 0.6,
         'raster-hue-rotate': -8,
       },
     },
     beforeLayerId,
   )
+}
+
+function removeTiandituDetailLayers(map: maplibregl.Map) {
+  if (map.getLayer(tiandituLabelLayerId)) {
+    map.removeLayer(tiandituLabelLayerId)
+  }
+  if (map.getLayer(tiandituVectorLayerId)) {
+    map.removeLayer(tiandituVectorLayerId)
+  }
+  if (map.getSource(tiandituLabelSourceId)) {
+    map.removeSource(tiandituLabelSourceId)
+  }
+  if (map.getSource(tiandituVectorSourceId)) {
+    map.removeSource(tiandituVectorSourceId)
+  }
+}
+
+function syncTiandituDetailLayers(map: maplibregl.Map, showFocusMask: boolean) {
+  if (!map.isStyleLoaded()) {
+    return
+  }
+
+  if (showFocusMask && map.getZoom() > tiandituDetailZoomThreshold) {
+    addTiandituDetailLayers(map)
+    return
+  }
+
+  removeTiandituDetailLayers(map)
 }
 
 function addBuildingExtrusionLayer(map: maplibregl.Map) {
@@ -1030,7 +1068,7 @@ function addDistrictLayers(
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
-        maxWidth: '240px',
+        maxWidth: '420px',
         offset: 18,
         className: 'drainage-district-popup',
       })
@@ -1123,22 +1161,12 @@ function addDistrictLayers(
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
-        maxWidth: '240px',
-        offset: 18,
-        className: 'drainage-district-popup',
+        maxWidth: '460px',
+        offset: 12,
+        className: 'drainage-siltation-popup-wrapper',
       })
         .setLngLat(lngLat)
-        .setDOMContent(
-          buildDistrictPopupContent({
-            id: props.id as string,
-            name: props.name as string,
-            sewageSystem: props.sewageSystem as string | undefined,
-            status: 'critical',
-            rainyWeatherFlow: props.rainyWeatherFlow as number | undefined,
-            dryWeatherFlow: props.dryWeatherFlow as number | undefined,
-            rainRatio: props.rainRatio as number | undefined,
-          }),
-        )
+        .setDOMContent(buildSiltationPopupContent(props.id as string))
         .addTo(map)
 
       activePopupRef.current = popup
@@ -1216,22 +1244,12 @@ function addDistrictLayers(
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
-        maxWidth: '240px',
-        offset: 18,
-        className: 'drainage-district-popup',
+        maxWidth: '460px',
+        offset: 12,
+        className: 'drainage-inflow-popup-wrapper',
       })
         .setLngLat(lngLat)
-        .setDOMContent(
-          buildDistrictPopupContent({
-            id: props.id as string,
-            name: props.name as string,
-            sewageSystem: props.sewageSystem as string | undefined,
-            status: 'warning',
-            rainyWeatherFlow: props.rainyWeatherFlow as number | undefined,
-            dryWeatherFlow: props.dryWeatherFlow as number | undefined,
-            rainRatio: props.rainRatio as number | undefined,
-          }),
-        )
+        .setDOMContent(buildInflowPopupContent(props.id as string))
         .addTo(map)
 
       activePopupRef.current = popup
@@ -1300,7 +1318,7 @@ function addDistrictLayers(
     // 降雨区域点击处理
     const handleRainAlertClick = (event: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(event.point, {
-        layers: [rainAlertLayerId],
+        layers: ['rain-alert-fill', rainAlertLayerId],
       })
 
       if (features.length === 0) return
@@ -1319,9 +1337,9 @@ function addDistrictLayers(
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
-        maxWidth: '240px',
+        maxWidth: '460px',
         offset: 18,
-        className: 'drainage-district-popup',
+        className: 'drainage-rain-alert-popup-wrapper',
       })
         .setLngLat(lngLat)
         .setDOMContent(
@@ -1333,13 +1351,14 @@ function addDistrictLayers(
             rainyWeatherFlow: props.rainyWeatherFlow as number | undefined,
             dryWeatherFlow: props.dryWeatherFlow as number | undefined,
             rainRatio: props.rainRatio as number | undefined,
-          }),
+          }, { variant: 'alert' }),
         )
         .addTo(map)
 
       activePopupRef.current = popup
     }
 
+    map.on('click', 'rain-alert-fill', handleRainAlertClick)
     map.on('click', rainAlertLayerId, handleRainAlertClick)
 
     const setPointerCursor = () => {
@@ -1349,6 +1368,8 @@ function addDistrictLayers(
       map.getCanvas().style.cursor = ''
     }
 
+    map.on('mouseenter', 'rain-alert-fill', setPointerCursor)
+    map.on('mouseleave', 'rain-alert-fill', resetCursor)
     map.on('mouseenter', rainAlertLayerId, setPointerCursor)
     map.on('mouseleave', rainAlertLayerId, resetCursor)
   }
@@ -1374,9 +1395,10 @@ export function useMapLibre({
   const blinkFrameRef = useRef<number | null>(null)
   const rainDropFrameRef = useRef<number | null>(null)
   const toggleFocusMaskRef = useRef<((show: boolean) => void) | null>(null)
+  const isFocusMaskVisibleRef = useRef(showFocusMask)
   const geoJsonDataset = useMemo(() => buildDrainageGeoJson(dataset), [dataset])
 
-  // 创建切换遮罩的函数（始终使用 fiord 样式，只添加/移除遮罩图层）
+  // 创建切换演示边界的函数（始终使用 fiord 原始样式）
   const createToggleFocusMask = (map: maplibregl.Map) => {
     return (show: boolean) => {
       const closeAllPopups = () => {
@@ -1386,15 +1408,16 @@ export function useMapLibre({
         activeDistrictPopupRef.current = null
       }
 
+      isFocusMaskVisibleRef.current = show
+
       if (show) {
-        // 显示遮罩：添加汾口镇遮罩图层
-        if (!map.getSource(fenkouMaskSourceId)) {
+        // 显示汾口镇演示边界。
+        if (!map.getSource(fenkouFocusSourceId)) {
           addFenkouFocusLayers(map, dataset.focusBoundary)
         }
       } else {
-        // 隐藏遮罩：移除汾口镇遮罩图层
+        // 隐藏汾口镇演示边界。
         const layersToRemove = [
-          'fenkou-outside-mask',
           'fenkou-focus-wall',
           'fenkou-focus-outline-halo',
           'fenkou-focus-outline-glow',
@@ -1405,13 +1428,12 @@ export function useMapLibre({
             map.removeLayer(layerId)
           }
         }
-        if (map.getSource(fenkouMaskSourceId)) {
-          map.removeSource(fenkouMaskSourceId)
-        }
         if (map.getSource(fenkouFocusSourceId)) {
           map.removeSource(fenkouFocusSourceId)
         }
       }
+
+      syncTiandituDetailLayers(map, show)
 
       // 关闭所有弹窗
       closeAllPopups()
@@ -1480,11 +1502,12 @@ export function useMapLibre({
         activeDistrictPopupRef.current = null
       }
 
-      addTiandituDetailLayers(map)
       addBuildingExtrusionLayer(map)
       if (showFocusMask) {
         addFenkouFocusLayers(map, dataset.focusBoundary)
       }
+      isFocusMaskVisibleRef.current = showFocusMask
+      syncTiandituDetailLayers(map, showFocusMask)
       addWaterwayLayers(map, geoJsonDataset)
       addDrainageLayers(map, geoJsonDataset)
       siteMarkersRef.current = addMonitoringSiteMarkers(
@@ -1609,6 +1632,7 @@ export function useMapLibre({
     map.once('load', handleLoad)
     const handleZoom = () => {
       updateSiteMarkerScale(map, siteMarkersRef.current)
+      syncTiandituDetailLayers(map, isFocusMaskVisibleRef.current)
     }
 
     const handleZoomEnd = () => logMapZoom(map)

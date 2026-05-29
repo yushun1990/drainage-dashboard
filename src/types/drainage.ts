@@ -168,3 +168,62 @@ export interface SiteFlowData {
   date: string      // MM-DD
   flow: number      // 流量 (L/s)
 }
+
+export type RainPipeInflowRiskType =
+  | 'external-water-infiltration'
+  | 'river-backflow'
+  | 'drainage-delay'
+
+export interface RainPipeHydraulicSeries {
+  date: string
+  rainfall: number             // 降雨量 (mm)
+  flow: number                 // 雨水管流量 (L/s)
+  pipeWaterLevel: number       // 雨水管水位 (m)
+  externalWaterLevel: number   // 河道/地下水参考水位 (m)
+}
+
+export interface RainPipeRiskMetric {
+  label: string
+  value: string
+  status: HealthStatus
+}
+
+export interface RainPipeInflowInfiltrationDetail {
+  districtId: string
+  districtName: string
+  pipeSystem: 'rainwater'
+  riskType: RainPipeInflowRiskType
+  alarmTime: string
+  alarmLevel: AlarmLevel
+  riskScore: number
+  summary: string
+  evidence: string
+  metrics: RainPipeRiskMetric[]
+  hydraulicSeries: RainPipeHydraulicSeries[]
+}
+
+export interface PipeSiltationSeries {
+  date: string
+  rainfall: number
+  upstreamWaterLevel: number
+  downstreamWaterLevel: number
+  waterLevelDiff: number
+  flow: number
+  velocity: number
+  fullness: number
+  resistanceIndex: number
+  siltationRisk: number
+}
+
+export interface PipeSiltationDetail {
+  districtId: string
+  districtName: string
+  pipeSystem: 'sewage'
+  alarmTime: string
+  alarmLevel: AlarmLevel
+  riskScore: number
+  summary: string
+  evidence: string
+  metrics: RainPipeRiskMetric[]
+  hydraulicSeries: PipeSiltationSeries[]
+}

@@ -282,9 +282,9 @@ export const districtRainRatios: DistrictRainRatio[] = [
   { district: '汾口中学', rainyWeatherFlow: 32.5, dryWeatherFlow: 14.2, ratio: 2.29 },
   { district: '汾口小学', rainyWeatherFlow: 28.4, dryWeatherFlow: 12.8, ratio: 2.22 },
   { district: '温馨小区', rainyWeatherFlow: 38.2, dryWeatherFlow: 14.2, ratio: 2.69 },
-  { district: '工业园区', rainyWeatherFlow: 35.6, dryWeatherFlow: 16.8, ratio: 2.12 },
+  { district: '工业园区', rainyWeatherFlow: 52.8, dryWeatherFlow: 13.1, ratio: 4.03 },
   { district: '狮城春晓', rainyWeatherFlow: 26.8, dryWeatherFlow: 12.4, ratio: 2.16 },
-  { district: '景溪苑', rainyWeatherFlow: 52.8, dryWeatherFlow: 13.1, ratio: 4.03 },
+  { district: '景溪苑', rainyWeatherFlow: 35.6, dryWeatherFlow: 16.8, ratio: 2.12 },
   { district: '汾口初中', rainyWeatherFlow: 31.2, dryWeatherFlow: 15.6, ratio: 2.0 },
   { district: '第二医院', rainyWeatherFlow: 27.8, dryWeatherFlow: 11.8, ratio: 2.36 },
 ]

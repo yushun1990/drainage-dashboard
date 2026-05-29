@@ -84,6 +84,12 @@ export function buildSiltationGeoJson(): FeatureCollection<Polygon> {
         properties: {
           id: district.id,
           name: district.name,
+          sewageSystem: district.sewageSystem,
+          status: district.status,
+          areaType: district.areaType,
+          rainyWeatherFlow: district.rainyWeatherFlow,
+          dryWeatherFlow: district.dryWeatherFlow,
+          rainRatio: district.rainRatio ?? 0,
         },
         geometry: {
           type: 'Polygon' as const,
