@@ -1,11 +1,45 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { monitoringSites } from '../../../data/monitoringSiteData'
 import type { DrainageMapPoint } from '../../../types/drainage'
 
 // 天地图类型声明
+interface TiandituPoint {
+  getLng: () => number
+  getLat: () => number
+}
+
+type TiandituOverlay = object
+
+interface TiandituMap {
+  addControl: (control: unknown) => void
+  addOverLay: (overlay: TiandituOverlay) => void
+  removeOverLay: (overlay: TiandituOverlay) => void
+  addEventListener: (type: 'click', listener: (event: TiandituMapClickEvent) => void) => void
+}
+
+interface TiandituMapClickEvent {
+  lnglat?: TiandituPoint
+}
+
+interface TiandituNamespace {
+  Map: new (
+    container: HTMLDivElement,
+    options: { center: TiandituPoint; zoom: number; minZoom: number; maxZoom: number }
+  ) => TiandituMap
+  LngLat: new (lng: number, lat: number) => TiandituPoint
+  Point: new (x: number, y: number) => unknown
+  Icon: new (options: { iconUrl: string; iconSize: unknown; iconAnchor: unknown }) => unknown
+  Marker: new (point: TiandituPoint, options?: { icon?: unknown }) => TiandituOverlay
+  Polyline: new (points: TiandituPoint[], options: { color: string; weight: number; opacity: number }) => TiandituOverlay
+  Control: {
+    Zoom: new () => unknown
+    MapType: new () => unknown
+  }
+}
+
 declare global {
   interface Window {
-    T?: any
+    T?: TiandituNamespace
   }
 }
 
@@ -51,36 +85,50 @@ const siteTypeLabels: Record<string, string> = {
   'water-meter': '水表',
 }
 
+function createInitialFormData(editData?: AreaFormData | null): AreaFormData {
+  return editData
+    ? {
+        ...editData,
+        isActive: editData.isActive ?? true,
+      }
+    : {
+        name: '',
+        sewageSystem: 'SEPARATE_SYSTEM',
+        deviceIds: [],
+        coordinates: [],
+        isActive: true,
+      }
+}
+
 export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormModalProps) {
-  const [formData, setFormData] = useState<AreaFormData>({
-    name: '',
-    sewageSystem: 'SEPARATE_SYSTEM',
-    deviceIds: [],
-    coordinates: [],
-    isActive: true,
-  })
+  const [formData, setFormData] = useState<AreaFormData>(() => createInitialFormData(editData))
 
   const [showMap, setShowMap] = useState(false)
-  const [mapLoaded, setMapLoaded] = useState(false)
+  const [mapLoaded, setMapLoaded] = useState(() => Boolean(window.T))
+  const [mapError, setMapError] = useState<string | null>(null)
   const [isSiteListCollapsed, setIsSiteListCollapsed] = useState(false)
   const mapRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<any>(null)
-  const drawingPointsRef = useRef<[number, number][]>([])
-  const polygonLayerRef = useRef<any>(null)
-  const drawingMarkersRef = useRef<any[]>([])
-  const previewLinesRef = useRef<any[]>([])
-  const siteMarkersRef = useRef<any[]>([])
+  const mapInstanceRef = useRef<TiandituMap | null>(null)
+  const drawingPointsRef = useRef<[number, number][]>(editData?.coordinates || [])
+  const polygonLayerRef = useRef<TiandituOverlay | null>(null)
+  const drawingMarkersRef = useRef<TiandituOverlay[]>([])
+  const previewLinesRef = useRef<TiandituOverlay[]>([])
+  const siteMarkersRef = useRef<TiandituOverlay[]>([])
 
   // 使用站点数据
-  const siteOptions: SiteOption[] = monitoringSites.map((site: DrainageMapPoint) => ({
-    id: site.id,
-    name: site.name,
-    category: site.category,
-    coordinate: site.coordinate,
-    normalIconUrl: site.normalIconUrl,
-    alarmIconUrl: site.alarmIconUrl,
-    status: site.status,
-  }))
+  const siteOptions: SiteOption[] = useMemo(
+    () =>
+      monitoringSites.map((site: DrainageMapPoint) => ({
+        id: site.id,
+        name: site.name,
+        category: site.category,
+        coordinate: site.coordinate,
+        normalIconUrl: site.normalIconUrl,
+        alarmIconUrl: site.alarmIconUrl,
+        status: site.status,
+      })),
+    []
+  )
 
   // 清除天地图相关cookie以避免冲突
   const clearTiandituCookies = useCallback(() => {
@@ -100,7 +148,6 @@ export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormMod
   // 加载天地图脚本
   useEffect(() => {
     if (window.T) {
-      setMapLoaded(true)
       return
     }
 
@@ -114,11 +161,13 @@ export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormMod
     script.crossOrigin = 'anonymous'
 
     script.onload = () => {
+      setMapError(null)
       setMapLoaded(true)
     }
 
     script.onerror = () => {
       console.error('[天地图] 脚本加载失败，可能存在cookie冲突或网络问题')
+      setMapError('地图脚本加载失败，请检查网络后重试')
       // 尝试清除cookie后重新加载
       clearTiandituCookies()
     }
@@ -134,79 +183,10 @@ export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormMod
     }
   }, [clearTiandituCookies])
 
-
-  // 初始化地图
-  useEffect(() => {
-    if (!showMap || !mapRef.current || !mapLoaded || !window.T) return
-
-    // 避免重复初始化
-    if (mapInstanceRef.current) {
-      return
-    }
-
+  const updatePolygon = useCallback((map: TiandituMap) => {
     const T = window.T
+    if (!T) return
 
-    // 创建地图
-    const map = new T.Map(mapRef.current, {
-      center: new T.LngLat(118.55, 29.43),
-      zoom: 15,
-      minZoom: 12,
-      maxZoom: 18,
-    })
-
-    // 添加缩放控件
-    const zoomControl = new T.Control.Zoom()
-    map.addControl(zoomControl)
-
-    // 添加地图类型控件
-    const mapTypeControl = new T.Control.MapType()
-    map.addControl(mapTypeControl)
-
-    mapInstanceRef.current = map
-
-    // 添加站点标记点（仅显示，不可点击）
-    siteOptions.forEach((site) => {
-      const iconUrl = site.status === 'critical' ? site.alarmIconUrl : site.normalIconUrl
-      if (!iconUrl) return // Skip sites without icon URLs
-
-      const point = new T.LngLat(site.coordinate[0], site.coordinate[1])
-      const marker = new T.Marker(point, {
-        icon: new T.Icon({
-          iconUrl,
-          iconSize: new T.Point(32, 32),
-          iconAnchor: new T.Point(16, 16),
-        }),
-      })
-
-      // 站点标记不可点击，防止影响图形绘制
-      // 不添加点击事件，让点击事件直接传递到地图
-
-      map.addOverLay(marker)
-      siteMarkersRef.current.push(marker)
-    })
-
-    // 地图点击事件
-    map.addEventListener('click', (e: any) => {
-      if (!e.lnglat) return
-
-      const lnglat = e.lnglat
-      const point: [number, number] = [lnglat.getLng(), lnglat.getLat()]
-      drawingPointsRef.current.push(point)
-
-      updatePolygon(map)
-    })
-
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current = null
-      }
-    }
-  }, [showMap, mapLoaded, siteOptions])
-
-  const updatePolygon = useCallback((map: any) => {
-    if (!map) return
-
-    const T = window.T
     const points = drawingPointsRef.current
 
     // 清除旧的绘制点、预览线和多边形
@@ -215,7 +195,7 @@ export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormMod
     previewLinesRef.current.forEach((line) => map.removeOverLay(line))
     previewLinesRef.current = []
     if (polygonLayerRef.current) {
-      map.removeOverLay(polygonLayerRef)
+      map.removeOverLay(polygonLayerRef.current)
       polygonLayerRef.current = null
     }
 
@@ -266,28 +246,83 @@ export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormMod
     }
   }, [])
 
+  // 初始化地图
   useEffect(() => {
-    if (editData) {
-      setFormData({
-        ...editData,
-        isActive: editData.isActive ?? true,
-      })
-      drawingPointsRef.current = editData.coordinates || []
-      previewLinesRef.current = []
-      setIsSiteListCollapsed(false)
-    } else {
-      setFormData({
-        name: '',
-        sewageSystem: 'SEPARATE_SYSTEM',
-        deviceIds: [],
-        coordinates: [],
-        isActive: true,
-      })
-      drawingPointsRef.current = []
-      previewLinesRef.current = []
-      setIsSiteListCollapsed(false)
+    if (!showMap || !mapRef.current || !mapLoaded || !window.T) return
+
+    // 避免重复初始化
+    if (mapInstanceRef.current) {
+      return
     }
-  }, [editData, isOpen])
+
+    const T = window.T
+
+    try {
+      // 创建地图
+      const map = new T.Map(mapRef.current, {
+        center: new T.LngLat(118.55, 29.43),
+        zoom: 15,
+        minZoom: 12,
+        maxZoom: 18,
+      })
+
+      // 添加缩放控件
+      const zoomControl = new T.Control.Zoom()
+      map.addControl(zoomControl)
+
+      // 添加地图类型控件
+      const mapTypeControl = new T.Control.MapType()
+      map.addControl(mapTypeControl)
+
+      mapInstanceRef.current = map
+
+      // 添加站点标记点（仅显示，不可点击）
+      siteOptions.forEach((site) => {
+        const iconUrl = site.status === 'critical' ? site.alarmIconUrl : site.normalIconUrl
+        if (!iconUrl) return // Skip sites without icon URLs
+
+        const point = new T.LngLat(site.coordinate[0], site.coordinate[1])
+        const marker = new T.Marker(point, {
+          icon: new T.Icon({
+            iconUrl,
+            iconSize: new T.Point(32, 32),
+            iconAnchor: new T.Point(16, 16),
+          }),
+        })
+
+        // 站点标记不可点击，防止影响图形绘制
+        // 不添加点击事件，让点击事件直接传递到地图
+
+        map.addOverLay(marker)
+        siteMarkersRef.current.push(marker)
+      })
+
+      // 地图点击事件
+      map.addEventListener('click', (e) => {
+        if (!e.lnglat) return
+
+        const lnglat = e.lnglat
+        const point: [number, number] = [lnglat.getLng(), lnglat.getLat()]
+        drawingPointsRef.current.push(point)
+
+        updatePolygon(map)
+      })
+
+      if (drawingPointsRef.current.length > 0) {
+        updatePolygon(map)
+      }
+    } catch (error) {
+      console.error('[天地图] 地图初始化失败', error)
+      queueMicrotask(() => setMapError('地图初始化失败，请稍后重试'))
+      mapInstanceRef.current = null
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current = null
+      }
+    }
+  }, [showMap, mapLoaded, siteOptions, updatePolygon])
 
   const handleDeviceToggle = (siteId: string) => {
     setFormData((prev) => {
@@ -316,18 +351,19 @@ export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormMod
   }
 
   const handleClearDrawing = () => {
-    if (mapInstanceRef.current) {
+    const map = mapInstanceRef.current
+    if (map) {
       // 清除所有绘制点标记
-      drawingMarkersRef.current.forEach((marker) => mapInstanceRef.current.removeOverLay(marker))
+      drawingMarkersRef.current.forEach((marker) => map.removeOverLay(marker))
       drawingMarkersRef.current = []
 
       // 清除所有预览线
-      previewLinesRef.current.forEach((line) => mapInstanceRef.current.removeOverLay(line))
+      previewLinesRef.current.forEach((line) => map.removeOverLay(line))
       previewLinesRef.current = []
 
       // 清除多边形
       if (polygonLayerRef.current) {
-        mapInstanceRef.current.removeOverLay(polygonLayerRef.current)
+        map.removeOverLay(polygonLayerRef.current)
         polygonLayerRef.current = null
       }
     }
@@ -409,7 +445,12 @@ export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormMod
                 </label>
                 <select
                   value={formData.sewageSystem}
-                  onChange={(e) => setFormData({ ...formData, sewageSystem: e.target.value as any })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      sewageSystem: e.target.value as AreaFormData['sewageSystem'],
+                    })
+                  }
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 >
                   {sewageSystems.map((sys) => (
@@ -561,6 +602,11 @@ export function AreaFormModal({ isOpen, onClose, onSave, editData }: AreaFormMod
                 {!mapLoaded && (
                   <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-100">
                     <div className="text-sm text-slate-500">正在加载地图...</div>
+                  </div>
+                )}
+                {mapError && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-slate-100">
+                    <div className="text-sm text-red-500">{mapError}</div>
                   </div>
                 )}
               </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import districtsData from '../../../data/districts.json'
 import { AreaFormModal, type AreaFormData } from '../forms/AreaFormModal'
 
@@ -9,13 +9,13 @@ type AreaStatus = 'normal' | 'rain-ratio-abnormal' | 'inflow-infiltration' | 'pi
 interface District {
   id: string
   name: string
-  sewageSystem: string
+  sewageSystem: AreaFormData['sewageSystem']
   status: 'healthy' | 'warning' | 'critical'
   areaType: 'normal' | 'siltation' | 'inflow'
   rainyWeatherFlow: number
   dryWeatherFlow: number
   rainRatio: number
-  coordinates: number[][]
+  coordinates: [number, number][]
   isActive?: boolean
 }
 
@@ -61,32 +61,31 @@ const mockDeviceCounts: Record<string, number> = {
   '117': 5,
 }
 
+const initialDistricts = districtsData as District[]
+
+function buildAreaList(districtList: District[]): Area[] {
+  return districtList.map((district) => ({
+    id: district.id,
+    name: district.name,
+    deviceCount: mockDeviceCounts[district.id] || 0,
+    rainRatio: district.rainRatio,
+    status: mapAreaStatus(district.areaType, district.status, district.rainRatio),
+    isActive: district.isActive ?? true,
+  }))
+}
+
 export function NetworkZone() {
-  const [areas, setAreas] = useState<Area[]>([])
-  const [districts, setDistricts] = useState<District[]>([])
+  const [areas, setAreas] = useState<Area[]>(() => buildAreaList(initialDistricts))
+  const [districts, setDistricts] = useState<District[]>(initialDistricts)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingDistrict, setEditingDistrict] = useState<District | null>(null)
   const [searchKeyword, setSearchKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | AreaStatus>('all')
   const [currentPage, setCurrentPage] = useState(1)
 
-  useEffect(() => {
-    loadAreas()
-  }, [])
-
   const loadAreas = () => {
-    const districtList = districtsData as District[]
-    setDistricts(districtList)
-
-    const areaList: Area[] = districtList.map((district) => ({
-      id: district.id,
-      name: district.name,
-      deviceCount: mockDeviceCounts[district.id] || 0,
-      rainRatio: district.rainRatio,
-      status: mapAreaStatus(district.areaType, district.status, district.rainRatio),
-      isActive: district.isActive ?? true,
-    }))
-    setAreas(areaList)
+    setDistricts(initialDistricts)
+    setAreas(buildAreaList(initialDistricts))
   }
 
   const handleAddArea = () => {
@@ -124,6 +123,8 @@ export function NetworkZone() {
     (currentPage - 1) * PAGE_SIZE,
     currentPage * PAGE_SIZE
   )
+  const pageStart = filteredAreas.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+  const pageEnd = Math.min(currentPage * PAGE_SIZE, filteredAreas.length)
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
@@ -193,124 +194,132 @@ export function NetworkZone() {
         </div>
       </div>
 
-      <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <table className="w-full">
-          <thead className="border-b border-slate-200 bg-slate-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                区域名称
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                设备数量
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                晴雨比
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                当前状态
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                激活状态
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-500">
-                操作
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {paginatedAreas.map((area) => (
-              <tr key={area.id} className="hover:bg-slate-50">
-                <td className="px-6 py-4 text-sm font-medium text-slate-900">{area.name}</td>
-                <td className="px-6 py-4 text-sm text-slate-600">{area.deviceCount}</td>
-                <td className="px-6 py-4 text-sm text-slate-600">{area.rainRatio.toFixed(2)}</td>
-                <td className="px-6 py-4">
-                  <span
-                    className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-                      statusStyles[area.status]
+      <div className="space-y-2">
+        <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <table className="w-full">
+            <thead className="border-b border-slate-200 bg-slate-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                  区域名称
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                  设备数量
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                  晴雨比
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                  当前状态
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                  激活状态
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-500">
+                  操作
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {paginatedAreas.map((area) => (
+                <tr key={area.id} className="hover:bg-slate-50">
+                  <td className="px-6 py-4 text-sm font-medium text-slate-900">{area.name}</td>
+                  <td className="px-6 py-4 text-sm text-slate-600">{area.deviceCount}</td>
+                  <td className="px-6 py-4 text-sm text-slate-600">{area.rainRatio.toFixed(2)}</td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                        statusStyles[area.status]
+                      }`}
+                    >
+                      {statusLabels[area.status]}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    {area.isActive ? (
+                      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                        已激活
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                        未激活
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-right text-sm">
+                    <button
+                      onClick={() => handleEditArea(area)}
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      编辑
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </article>
+
+        {/* 分页 */}
+        {filteredAreas.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <div className="text-sm text-slate-500">
+              显示 {pageStart}-{pageEnd} 条，共 {filteredAreas.length} 条
+            </div>
+
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 disabled:hover:bg-white"
+              >
+                上一页
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                // 显示逻辑：首页、末页、当前页及前后各1页
+                const showPage =
+                  page === 1 ||
+                  page === totalPages ||
+                  (page >= currentPage - 1 && page <= currentPage + 1)
+
+                if (!showPage) {
+                  // 显示省略号
+                  if (page === currentPage - 2 || page === currentPage + 2) {
+                    return (
+                      <span key={page} className="px-2 text-slate-400">
+                        ...
+                      </span>
+                    )
+                  }
+                  return null
+                }
+
+                return (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page)}
+                    className={`min-w-[36px] rounded-lg px-3 py-2 text-sm ${
+                      currentPage === page
+                        ? 'border border-blue-500 bg-blue-500 font-medium text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    {statusLabels[area.status]}
-                  </span>
-                </td>
-                <td className="px-6 py-4">
-                  {area.isActive ? (
-                    <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                      已激活
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                      未激活
-                    </span>
-                  )}
-                </td>
-                <td className="px-6 py-4 text-right text-sm">
-                  <button
-                    onClick={() => handleEditArea(area)}
-                    className="text-blue-600 hover:text-blue-800"
-                  >
-                    编辑
+                    {page}
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </article>
-
-      {/* 分页 */}
-      {filteredAreas.length > 0 && totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 disabled:hover:bg-white"
-          >
-            上一页
-          </button>
-
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-            // 显示逻辑：首页、末页、当前页及前后各1页
-            const showPage =
-              page === 1 ||
-              page === totalPages ||
-              (page >= currentPage - 1 && page <= currentPage + 1)
-
-            if (!showPage) {
-              // 显示省略号
-              if (page === currentPage - 2 || page === currentPage + 2) {
-                return (
-                  <span key={page} className="px-2 text-slate-400">
-                    ...
-                  </span>
                 )
-              }
-              return null
-            }
+              })}
 
-            return (
               <button
-                key={page}
-                onClick={() => handlePageChange(page)}
-                className={`min-w-[36px] rounded-lg px-3 py-2 text-sm ${
-                  currentPage === page
-                    ? 'border border-blue-500 bg-blue-500 font-medium text-white'
-                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                }`}
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 disabled:hover:bg-white"
               >
-                {page}
+                下一页
               </button>
-            )
-          })}
-
-          <button
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 disabled:hover:bg-white"
-          >
-            下一页
-          </button>
-        </div>
-      )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {filteredAreas.length === 0 && (
         <div className="text-center py-12 text-slate-400">
@@ -319,19 +328,21 @@ export function NetworkZone() {
       )}
 
       {/* 新增/编辑弹窗 */}
-      <AreaFormModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSave={handleSaveArea}
-        editData={editingDistrict ? ({
-          id: editingDistrict.id,
-          name: editingDistrict.name,
-          sewageSystem: editingDistrict.sewageSystem as any,
-          deviceIds: [],
-          coordinates: editingDistrict.coordinates as any,
-          isActive: editingDistrict.isActive ?? true,
-        }) : null}
-      />
+      {isModalOpen && (
+        <AreaFormModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onSave={handleSaveArea}
+          editData={editingDistrict ? ({
+            id: editingDistrict.id,
+            name: editingDistrict.name,
+            sewageSystem: editingDistrict.sewageSystem,
+            deviceIds: [],
+            coordinates: editingDistrict.coordinates,
+            isActive: editingDistrict.isActive ?? true,
+          }) : null}
+        />
+      )}
     </div>
   )
 }

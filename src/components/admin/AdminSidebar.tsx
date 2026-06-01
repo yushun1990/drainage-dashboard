@@ -76,7 +76,6 @@ function ChevronDownIcon({ className }: { className?: string }) {
 
 export function AdminSidebar({
   pages,
-  currentPage: _currentPage,
   onPageChange,
   collapsed,
   onToggle,
