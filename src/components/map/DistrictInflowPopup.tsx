@@ -58,9 +58,6 @@ export function DistrictInflowPopup({ districtId }: DistrictInflowPopupProps) {
             <h3 className="truncate text-sm font-medium leading-5 text-white">
               {detail.districtName} · 雨水管网
             </h3>
-            <p className="text-[10px] leading-4 text-cyan-100/60">
-              区域{detail.districtId} · 仅雨水管模拟
-            </p>
           </div>
           <span className="flex h-6 shrink-0 items-center gap-1.5 rounded border border-amber-400/50 bg-amber-400/20 px-2">
             <span className="h-2 w-2 rounded-full bg-amber-300 animate-pulse" />

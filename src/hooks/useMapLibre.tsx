@@ -69,6 +69,25 @@ const mixingAlarmSiteIds = new Set(['site-133', 'site-155'])
 const pipeFlowDurationMs = 2600
 const blinkDurationMs = 2000
 
+type PopupAnchor =
+  | 'top'
+  | 'bottom'
+  | 'left'
+  | 'right'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
+
+interface PopupPlacement {
+  anchor: PopupAnchor
+  offset: number
+}
+
+interface PopupPlacementOptions {
+  preferredAnchors?: PopupAnchor[]
+}
+
 const fenkouMaxBounds: LngLatBoundsLike = [
   [118.4086, 29.2906],
   [118.7286, 29.5628],
@@ -92,6 +111,93 @@ function updateGeoJsonSource(
   if (isMutableGeoJsonSource(source)) {
     source.setData(data)
   }
+}
+
+function buildPopupPlacement(
+  map: maplibregl.Map,
+  lngLat: maplibregl.LngLatLike,
+  popupSize: { width: number; height: number },
+  options: PopupPlacementOptions = {},
+): PopupPlacement {
+  const point = map.project(lngLat)
+  const canvas = map.getCanvas()
+  const edgePadding = 24
+  const offset = 14
+  const anchors: PopupAnchor[] = [
+    ...(options.preferredAnchors ?? []),
+    'bottom',
+    'top',
+    'right',
+    'left',
+    'bottom-right',
+    'bottom-left',
+    'top-right',
+    'top-left',
+  ]
+  const uniqueAnchors = anchors.filter((anchor, index) => anchors.indexOf(anchor) === index)
+
+  const buildRect = (anchor: PopupAnchor) => {
+    const width = popupSize.width
+    const height = popupSize.height
+    const horizontalCenter = point.x - width / 2
+    const verticalCenter = point.y - height / 2
+
+    switch (anchor) {
+      case 'top':
+        return { left: horizontalCenter, top: point.y + offset, right: horizontalCenter + width, bottom: point.y + offset + height }
+      case 'left':
+        return { left: point.x + offset, top: verticalCenter, right: point.x + offset + width, bottom: verticalCenter + height }
+      case 'right':
+        return { left: point.x - offset - width, top: verticalCenter, right: point.x - offset, bottom: verticalCenter + height }
+      case 'top-left':
+        return { left: point.x + offset, top: point.y + offset, right: point.x + offset + width, bottom: point.y + offset + height }
+      case 'top-right':
+        return { left: point.x - offset - width, top: point.y + offset, right: point.x - offset, bottom: point.y + offset + height }
+      case 'bottom-left':
+        return { left: point.x + offset, top: point.y - offset - height, right: point.x + offset + width, bottom: point.y - offset }
+      case 'bottom-right':
+        return { left: point.x - offset - width, top: point.y - offset - height, right: point.x - offset, bottom: point.y - offset }
+      case 'bottom':
+      default:
+        return { left: horizontalCenter, top: point.y - offset - height, right: horizontalCenter + width, bottom: point.y - offset }
+    }
+  }
+
+  const viewport = {
+    left: edgePadding,
+    top: edgePadding,
+    right: canvas.clientWidth - edgePadding,
+    bottom: canvas.clientHeight - edgePadding,
+  }
+
+  const placements = uniqueAnchors.map((anchor, index) => {
+    const rect = buildRect(anchor)
+    const visibleWidth = Math.max(
+      0,
+      Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left),
+    )
+    const visibleHeight = Math.max(
+      0,
+      Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top),
+    )
+    const clippedDistance =
+      Math.max(viewport.left - rect.left, 0) +
+      Math.max(rect.right - viewport.right, 0) +
+      Math.max(viewport.top - rect.top, 0) +
+      Math.max(rect.bottom - viewport.bottom, 0)
+
+    return {
+      anchor,
+      index,
+      score: visibleWidth * visibleHeight - clippedDistance * 120 - index,
+    }
+  })
+
+  const bestPlacement = placements.reduce((best, placement) =>
+    placement.score > best.score ? placement : best,
+  )
+
+  return { anchor: bestPlacement.anchor, offset }
 }
 
 function hasSiteIcon(point: DrainageMapPoint): boolean {
@@ -1063,13 +1169,14 @@ function addDistrictLayers(
       closeOtherPopups?.()
 
       const lngLat = event.lngLat
+      const popupPlacement = buildPopupPlacement(map, lngLat, { width: 420, height: 320 })
       const popup = new maplibregl.Popup({
-        anchor: 'bottom',
+        anchor: popupPlacement.anchor,
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
         maxWidth: '420px',
-        offset: 18,
+        offset: popupPlacement.offset,
         className: 'drainage-district-popup',
       })
         .setLngLat(lngLat)
@@ -1156,13 +1263,21 @@ function addDistrictLayers(
       closeOtherPopups?.()
 
       const lngLat = event.lngLat
+      const popupPlacement = buildPopupPlacement(
+        map,
+        lngLat,
+        { width: 560, height: 480 },
+        {
+          preferredAnchors: ['right', 'left', 'top-right', 'top-left', 'bottom-right', 'bottom-left'],
+        },
+      )
       const popup = new maplibregl.Popup({
-        anchor: 'bottom',
+        anchor: popupPlacement.anchor,
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
-        maxWidth: '460px',
-        offset: 12,
+        maxWidth: '560px',
+        offset: popupPlacement.offset,
         className: 'drainage-siltation-popup-wrapper',
       })
         .setLngLat(lngLat)
@@ -1239,13 +1354,14 @@ function addDistrictLayers(
       closeOtherPopups?.()
 
       const lngLat = event.lngLat
+      const popupPlacement = buildPopupPlacement(map, lngLat, { width: 460, height: 500 })
       const popup = new maplibregl.Popup({
-        anchor: 'bottom',
+        anchor: popupPlacement.anchor,
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
         maxWidth: '460px',
-        offset: 12,
+        offset: popupPlacement.offset,
         className: 'drainage-inflow-popup-wrapper',
       })
         .setLngLat(lngLat)
@@ -1332,13 +1448,14 @@ function addDistrictLayers(
       closeOtherPopups?.()
 
       const lngLat = event.lngLat
+      const popupPlacement = buildPopupPlacement(map, lngLat, { width: 460, height: 420 })
       const popup = new maplibregl.Popup({
-        anchor: 'bottom',
+        anchor: popupPlacement.anchor,
         closeButton: true,
         closeOnClick: true,
         focusAfterOpen: false,
         maxWidth: '460px',
-        offset: 18,
+        offset: popupPlacement.offset,
         className: 'drainage-rain-alert-popup-wrapper',
       })
         .setLngLat(lngLat)

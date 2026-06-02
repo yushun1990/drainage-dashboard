@@ -170,8 +170,27 @@ select {
 }
 
 .drainage-rain-alert-popup-wrapper .maplibregl-popup-tip {
-  border-top-color: rgb(15 23 42 / 98%);
+  border-color: transparent;
+}
+
+.drainage-rain-alert-popup-wrapper.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.drainage-rain-alert-popup-wrapper.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.drainage-rain-alert-popup-wrapper.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
   border-bottom-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-rain-alert-popup-wrapper.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.drainage-rain-alert-popup-wrapper.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.drainage-rain-alert-popup-wrapper.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-rain-alert-popup-wrapper.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-rain-alert-popup-wrapper.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: rgb(15 23 42 / 98%);
 }
 
 .drainage-rain-alert-popup-wrapper .maplibregl-popup-close-button {
@@ -326,8 +345,27 @@ select {
 }
 
 .drainage-inflow-popup-wrapper .maplibregl-popup-tip {
-  border-top-color: rgb(15 23 42 / 98%);
+  border-color: transparent;
+}
+
+.drainage-inflow-popup-wrapper.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.drainage-inflow-popup-wrapper.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.drainage-inflow-popup-wrapper.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
   border-bottom-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-inflow-popup-wrapper.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.drainage-inflow-popup-wrapper.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.drainage-inflow-popup-wrapper.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-inflow-popup-wrapper.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-inflow-popup-wrapper.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: rgb(15 23 42 / 98%);
 }
 
 .drainage-inflow-popup-wrapper .maplibregl-popup-close-button {
@@ -355,7 +393,7 @@ select {
 /* 管道淤积区域弹窗样式 */
 .drainage-siltation-popup-wrapper .maplibregl-popup-content {
   overflow: hidden;
-  max-height: min(500px, calc(100vh - 180px));
+  max-height: min(480px, calc(100vh - 120px));
   border: 1px solid rgb(248 113 113 / 42%);
   border-radius: 8px;
   background: rgb(15 23 42 / 98%);
@@ -370,15 +408,15 @@ select {
 .drainage-siltation-popup-panel {
   display: flex;
   flex-direction: column;
-  max-height: min(500px, calc(100vh - 180px));
+  max-height: min(480px, calc(100vh - 120px));
   overflow: hidden;
 }
 
 .drainage-siltation-popup-scroll {
   flex: 1 1 auto;
-  height: 190px;
+  height: auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
   overscroll-behavior: contain;
 }
 
@@ -399,8 +437,27 @@ select {
 }
 
 .drainage-siltation-popup-wrapper .maplibregl-popup-tip {
-  border-top-color: rgb(15 23 42 / 98%);
+  border-color: transparent;
+}
+
+.drainage-siltation-popup-wrapper.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.drainage-siltation-popup-wrapper.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.drainage-siltation-popup-wrapper.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
   border-bottom-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-siltation-popup-wrapper.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.drainage-siltation-popup-wrapper.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.drainage-siltation-popup-wrapper.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-siltation-popup-wrapper.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: rgb(15 23 42 / 98%);
+}
+
+.drainage-siltation-popup-wrapper.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: rgb(15 23 42 / 98%);
 }
 
 .drainage-siltation-popup-wrapper .maplibregl-popup-close-button {
