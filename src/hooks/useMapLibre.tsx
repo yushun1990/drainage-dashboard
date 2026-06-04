@@ -7,6 +7,7 @@ import type {
   ExpressionSpecification,
   FillExtrusionLayerSpecification,
   LngLatBoundsLike,
+  StyleSpecification,
 } from 'maplibre-gl'
 import type {
   Coordinate,
@@ -47,17 +48,14 @@ const rainAlertSourceId = 'rain-alert-area'
 const rainAlertLayerId = 'rain-alert-effect'
 const waterwaySourceId = 'fenkou-waterways'
 const fenkouFocusSourceId = 'fenkou-focus'
-const tiandituVectorSourceId = 'tianditu-vector-raster'
-const tiandituVectorLayerId = 'tianditu-vector-raster'
-const tiandituLabelSourceId = 'tianditu-label-raster'
-const tiandituLabelLayerId = 'tianditu-label-raster'
+const fenkouFocusMaskSourceId = 'fenkou-focus-mask'
+const fenkouFocusWallSourceId = 'fenkou-focus-wall'
+const tiandituSatelliteSourceId = 'tianditu-satellite-raster'
+const tiandituSatelliteLabelSourceId = 'tianditu-satellite-label-raster'
 const initialZoom = 14
 const pointMinZoom = 16.01
 const mapPitch = 58
 const mapBearing = 0
-const fiordStyleUrl = 'https://tiles.openfreemap.org/styles/fiord'
-const tiandituMinZoom = 14
-const tiandituDetailZoomThreshold = 16
 const tiandituToken = '5ce9baeca773fde9739ec866f9e117f3'
 const siteMarkerMinScale = 0.46
 const siteMarkerMaxScale = 1
@@ -68,6 +66,28 @@ const siteMarkerShowAllZoom = 15.3
 const mixingAlarmSiteIds = new Set(['site-133', 'site-155'])
 const pipeFlowDurationMs = 2600
 const blinkDurationMs = 2000
+const focusMaskBands = [
+  { id: 'fenkou-focus-outside-mask-near', band: 'near', expansion: 1, opacity: 0.14 },
+  { id: 'fenkou-focus-outside-mask-soft', band: 'soft', expansion: 1.025, opacity: 0.11 },
+  { id: 'fenkou-focus-outside-mask-mid', band: 'mid', expansion: 1.06, opacity: 0.1 },
+  { id: 'fenkou-focus-outside-mask-far', band: 'far', expansion: 1.105, opacity: 0.11 },
+] as const
+const focusWallPalette = {
+  mask: '#041c18',
+  depth: '#022c22',
+  body: '#064e3b',
+  innerGlow: '#0f766e',
+  topBand: '#34d399',
+  topGlow: '#10b981',
+  edgeShadow: '#031c16',
+  bottomGlow: '#6ee7b7',
+  terraceOuter: '#052e24',
+  terraceMid: '#10b981',
+  terraceInner: '#a7f3d0',
+  outlineHalo: '#059669',
+  outlineGlow: '#34d399',
+  outline: '#d1fae5',
+} as const
 
 type PopupAnchor =
   | 'top'
@@ -82,6 +102,12 @@ type PopupAnchor =
 interface PopupPlacement {
   anchor: PopupAnchor
   offset: number
+}
+
+type FocusMaskBand = (typeof focusMaskBands)[number]
+
+interface FocusMaskProperties {
+  band: FocusMaskBand['band']
 }
 
 interface PopupPlacementOptions {
@@ -354,7 +380,7 @@ function buildDistrictPopupContent(
   const wrapper = document.createElement('div')
   wrapper.className = showRainRatioTrend
     ? `${variant === 'alert' ? 'drainage-rain-alert-popup-panel' : 'drainage-district-popup-panel'} min-w-[360px] max-w-[420px] text-cyan-50`
-    : 'min-w-[200px] text-cyan-50'
+    : 'drainage-district-popup-panel min-w-[240px] text-cyan-50'
 
   const buildTag = (text: string, className: string) => {
     const tag = document.createElement('span')
@@ -373,7 +399,7 @@ function buildDistrictPopupContent(
           : '正常'
   const statusClass =
     variant === 'alert'
-      ? 'border-red-400/50 bg-red-400/20 text-red-200'
+      ? 'border-red-500/50 bg-red-500/20 text-red-400'
       : district.status === 'warning'
         ? 'border-amber-400/40 bg-amber-400/10 text-amber-200'
         : district.status === 'critical'
@@ -384,45 +410,97 @@ function buildDistrictPopupContent(
   const header = document.createElement('div')
   header.className =
     variant === 'alert'
-      ? 'flex items-start justify-between gap-2 border-b border-red-400/20 bg-gradient-to-r from-red-950/95 via-slate-950/95 to-cyan-950/95 px-4 py-2 pr-6'
-      : 'flex items-start justify-between gap-2 border-b border-cyan-500/20 bg-cyan-950/95 px-4 py-2 pr-6'
+      ? 'drainage-district-popup-header flex items-center justify-between gap-2 border-b border-cyan-500/20 bg-gradient-to-r from-red-950/95 via-slate-950/95 to-cyan-950/95 px-4 py-3 pr-12'
+      : 'drainage-district-popup-header flex items-center justify-between gap-3 border-b border-emerald-300/18 bg-[linear-gradient(90deg,rgba(6,78,59,0.9),rgba(13,148,136,0.7),rgba(8,47,73,0.58))] px-4 py-3 pr-16'
 
   const title = document.createElement('h3')
-  title.className = 'min-w-0 text-sm font-medium text-white'
+  title.className = 'min-w-0 truncate text-sm font-semibold text-white drop-shadow-[0_0_8px_rgba(125,211,252,0.68)]'
   title.textContent = district.name
+
+  const subtitle = document.createElement('p')
+  subtitle.className = variant === 'alert'
+    ? 'mt-1 truncate text-[10px] leading-none text-cyan-100/60'
+    : 'mt-1 truncate text-[10px] leading-none text-emerald-100/64'
+  subtitle.textContent = 'SEPARATE_SYSTEM · 区域运行分析'
 
   const titleWrap = document.createElement('div')
   titleWrap.className = 'min-w-0'
-  titleWrap.append(title)
+  titleWrap.append(title, subtitle)
 
   const tagWrap = document.createElement('div')
-  tagWrap.className = 'min-w-0 pt-0.5'
+  tagWrap.className = 'flex shrink-0 items-center'
   tagWrap.append(buildTag(statusValue, statusClass))
 
   header.append(titleWrap, tagWrap)
 
   wrapper.append(header)
 
+  const metrics = document.createElement('div')
+  metrics.className =
+    variant === 'alert'
+      ? 'grid grid-cols-3 gap-2 border-b border-red-500/10 bg-red-950/30 px-3 py-3'
+      : 'grid grid-cols-3 gap-2 border-b border-emerald-300/12 bg-[linear-gradient(180deg,rgba(6,78,59,0.52),rgba(8,47,73,0.42))] px-3 py-3'
+
+  const buildMetricCell = (label: string, value: string, toneClassName = 'text-emerald-50') => {
+    const cell = document.createElement('div')
+    cell.className =
+      variant === 'alert'
+        ? 'rounded border border-cyan-400/15 bg-cyan-950/45 px-2.5 py-2'
+        : 'rounded border border-emerald-200/16 bg-emerald-950/30 px-2.5 py-2 shadow-[inset_0_0_12px_rgba(45,212,191,0.08)]'
+
+    const labelEl = document.createElement('span')
+    labelEl.className =
+      variant === 'alert'
+        ? 'block truncate text-[10px] leading-none text-cyan-100/55'
+        : 'block truncate text-[10px] leading-none text-emerald-100/58'
+    labelEl.textContent = label
+
+    const valueEl = document.createElement('strong')
+    valueEl.className = `mt-1.5 block truncate text-xs font-semibold leading-none ${toneClassName}`
+    valueEl.textContent = value
+
+    cell.append(labelEl, valueEl)
+    return cell
+  }
+
+  metrics.append(
+    buildMetricCell(
+      '雨天流量',
+      district.rainyWeatherFlow === undefined ? '--' : `${district.rainyWeatherFlow} m3/d`,
+    ),
+    buildMetricCell(
+      '旱流流量',
+      district.dryWeatherFlow === undefined ? '--' : `${district.dryWeatherFlow} m3/d`,
+    ),
+    buildMetricCell(
+      '晴雨比',
+      district.rainRatio === undefined ? '--' : district.rainRatio.toFixed(2),
+      variant === 'alert' ? 'text-red-100' : 'text-cyan-50',
+    ),
+  )
+
+  wrapper.append(metrics)
+
   if (showRainRatioTrend && district.rainRatio !== undefined && district.rainRatio !== null) {
     const chartSection = document.createElement('div')
     chartSection.className =
       variant === 'alert'
-        ? 'border-t border-red-400/10 bg-red-950/20 p-3'
-        : 'border-t border-cyan-500/10 bg-cyan-950/45 p-3'
+        ? 'bg-cyan-950/60 p-3'
+        : 'bg-[linear-gradient(180deg,rgba(6,78,59,0.48),rgba(8,47,73,0.58))] p-3'
 
     const chartTitle = document.createElement('div')
     chartTitle.className = 'mb-2 flex items-center justify-between gap-2'
 
     const chartTitleText = document.createElement('span')
     chartTitleText.className =
-      variant === 'alert' ? 'text-xs font-medium text-red-100' : 'text-xs font-medium text-cyan-100'
+      variant === 'alert' ? 'text-xs font-medium text-cyan-100' : 'text-xs font-medium text-cyan-100'
     chartTitleText.textContent = '最近一周晴雨比曲线'
 
     const chartRatio = document.createElement('span')
     chartRatio.className =
       variant === 'alert'
-        ? 'rounded border border-red-400/20 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-100'
-        : 'rounded border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-100'
+        ? 'rounded border border-red-300/25 bg-red-300/10 px-2 py-0.5 text-[10px] font-semibold text-red-100'
+        : 'rounded border border-cyan-300/24 bg-cyan-300/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-100'
     chartRatio.textContent = `当前 ${district.rainRatio.toFixed(2)}`
 
     chartTitle.append(chartTitleText, chartRatio)
@@ -430,8 +508,8 @@ function buildDistrictPopupContent(
     const chartHost = document.createElement('div')
     chartHost.className =
       variant === 'alert'
-        ? 'h-[170px] w-full overflow-hidden rounded border border-red-400/10 bg-slate-950/35'
-        : 'h-[150px] w-full overflow-hidden rounded border border-cyan-400/10 bg-cyan-950/35'
+        ? 'h-[170px] w-full overflow-hidden rounded border border-cyan-500/10 bg-cyan-950/40 shadow-[inset_0_0_18px_rgba(8,145,178,0.08)]'
+        : 'h-[150px] w-full overflow-hidden rounded border border-emerald-300/14 bg-[radial-gradient(circle_at_18%_0%,rgba(45,212,191,0.14),transparent_36%),linear-gradient(180deg,rgba(6,78,59,0.58),rgba(8,47,73,0.52))] shadow-[inset_0_0_16px_rgba(45,212,191,0.07)]'
 
     const root = createRoot(chartHost)
     root.render(<DailyRainRatioChart data={dailyRainRatioTrendValues} className="h-full w-full" />)
@@ -545,7 +623,126 @@ function buildFocusPolygon(boundary: Coordinate[]): FeatureCollection<Polygon> {
   }
 }
 
+function closeRing(coordinates: Coordinate[]): Coordinate[] {
+  const first = coordinates[0]
+  const last = coordinates[coordinates.length - 1]
+
+  if (!first || !last) {
+    return coordinates
+  }
+
+  if (first[0] === last[0] && first[1] === last[1]) {
+    return coordinates
+  }
+
+  return [...coordinates, first]
+}
+
+function getOpenRing(coordinates: Coordinate[]): Coordinate[] {
+  const ring = closeRing(coordinates)
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+
+  if (first && last && first[0] === last[0] && first[1] === last[1]) {
+    return ring.slice(0, -1)
+  }
+
+  return ring
+}
+
+function expandBoundaryFromCenter(boundary: Coordinate[], expansion: number): Coordinate[] {
+  const ring = getOpenRing(boundary)
+  const center = ring.reduce<Coordinate>(
+    (sum, coordinate) => [sum[0] + coordinate[0], sum[1] + coordinate[1]],
+    [0, 0],
+  )
+  const centerLng = center[0] / ring.length
+  const centerLat = center[1] / ring.length
+
+  return closeRing(
+    ring.map((coordinate) => [
+      centerLng + (coordinate[0] - centerLng) * expansion,
+      centerLat + (coordinate[1] - centerLat) * expansion,
+    ]),
+  )
+}
+
+function buildFocusMaskPolygons(
+  boundary: Coordinate[],
+): FeatureCollection<Polygon, FocusMaskProperties> {
+  const outerRing: Coordinate[] = [
+    [118.4086, 29.2906],
+    [118.7286, 29.2906],
+    [118.7286, 29.5628],
+    [118.4086, 29.5628],
+    [118.4086, 29.2906],
+  ]
+
+  return {
+    type: 'FeatureCollection',
+    features: focusMaskBands.map((maskBand) => ({
+      type: 'Feature',
+      properties: {
+        band: maskBand.band,
+      },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          outerRing,
+          expandBoundaryFromCenter(boundary, maskBand.expansion).reverse(),
+        ],
+      },
+    })),
+  }
+}
+
+function buildFocusWallSegments(boundary: Coordinate[]): FeatureCollection<Polygon> {
+  const ring = closeRing(boundary)
+  const latitude = boundary.reduce((sum, coordinate) => sum + coordinate[1], 0) / boundary.length
+  const longitudeScale = Math.max(Math.cos((latitude * Math.PI) / 180), 0.2)
+  const wallWidthMeters = 6
+  const metersPerLatitudeDegree = 111_320
+  const metersPerLongitudeDegree = metersPerLatitudeDegree * longitudeScale
+
+  return {
+    type: 'FeatureCollection',
+    features: ring.slice(0, -1).map((start, index) => {
+      const end = ring[index + 1]
+      const dx = (end[0] - start[0]) * metersPerLongitudeDegree
+      const dy = (end[1] - start[1]) * metersPerLatitudeDegree
+      const length = Math.hypot(dx, dy) || 1
+      const normalX = (-dy / length) * wallWidthMeters
+      const normalY = (dx / length) * wallWidthMeters
+      const offsetLng = normalX / metersPerLongitudeDegree
+      const offsetLat = normalY / metersPerLatitudeDegree
+      const segment: Coordinate[] = [
+        [start[0] + offsetLng, start[1] + offsetLat],
+        [end[0] + offsetLng, end[1] + offsetLat],
+        [end[0] - offsetLng, end[1] - offsetLat],
+        [start[0] - offsetLng, start[1] - offsetLat],
+        [start[0] + offsetLng, start[1] + offsetLat],
+      ]
+
+      return {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [segment],
+        },
+      }
+    }),
+  }
+}
+
 function addFenkouFocusLayers(map: maplibregl.Map, boundary: Coordinate[]) {
+  if (!map.getSource(fenkouFocusMaskSourceId)) {
+    map.addSource(fenkouFocusMaskSourceId, {
+      type: 'geojson',
+      data: buildFocusMaskPolygons(boundary),
+    })
+  }
+
   if (!map.getSource(fenkouFocusSourceId)) {
     map.addSource(fenkouFocusSourceId, {
       type: 'geojson',
@@ -553,24 +750,308 @@ function addFenkouFocusLayers(map: maplibregl.Map, boundary: Coordinate[]) {
     })
   }
 
+  if (!map.getSource(fenkouFocusWallSourceId)) {
+    map.addSource(fenkouFocusWallSourceId, {
+      type: 'geojson',
+      data: buildFocusWallSegments(boundary),
+    })
+  }
+
+  for (const maskBand of focusMaskBands) {
+    if (!map.getLayer(maskBand.id)) {
+      map.addLayer({
+        id: maskBand.id,
+        type: 'fill',
+        source: fenkouFocusMaskSourceId,
+        filter: ['==', ['get', 'band'], maskBand.band],
+        paint: {
+          'fill-color': focusWallPalette.mask,
+          'fill-opacity': maskBand.opacity,
+        },
+      })
+    }
+  }
+
+  if (!map.getLayer('fenkou-focus-wall-depth')) {
+    map.addLayer({
+      id: 'fenkou-focus-wall-depth',
+      type: 'fill-extrusion',
+      source: fenkouFocusWallSourceId,
+      paint: {
+        'fill-extrusion-color': focusWallPalette.depth,
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          44,
+          16,
+          112,
+        ],
+        'fill-extrusion-base': 0,
+        'fill-extrusion-opacity': 0.32,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    })
+  }
+
   if (!map.getLayer('fenkou-focus-wall')) {
     map.addLayer({
       id: 'fenkou-focus-wall',
       type: 'fill-extrusion',
+      source: fenkouFocusWallSourceId,
+      paint: {
+        'fill-extrusion-color': focusWallPalette.body,
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          46,
+          16,
+          118,
+        ],
+        'fill-extrusion-base': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          3,
+          16,
+          8,
+        ],
+        'fill-extrusion-opacity': 0.58,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    })
+  }
+
+  if (!map.getLayer('fenkou-focus-wall-inner-glow')) {
+    map.addLayer({
+      id: 'fenkou-focus-wall-inner-glow',
+      type: 'fill-extrusion',
+      source: fenkouFocusWallSourceId,
+      paint: {
+        'fill-extrusion-color': focusWallPalette.innerGlow,
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          51,
+          16,
+          128,
+        ],
+        'fill-extrusion-base': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          40,
+          16,
+          104,
+        ],
+        'fill-extrusion-opacity': 0.46,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    })
+  }
+
+  if (!map.getLayer('fenkou-focus-wall-top-band')) {
+    map.addLayer({
+      id: 'fenkou-focus-wall-top-band',
+      type: 'fill-extrusion',
+      source: fenkouFocusWallSourceId,
+      paint: {
+        'fill-extrusion-color': focusWallPalette.topBand,
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          52.5,
+          16,
+          131,
+        ],
+        'fill-extrusion-base': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          51,
+          16,
+          129,
+        ],
+        'fill-extrusion-opacity': 0.86,
+        'fill-extrusion-vertical-gradient': false,
+      },
+    })
+  }
+
+  if (!map.getLayer('fenkou-focus-wall-top-glow')) {
+    map.addLayer({
+      id: 'fenkou-focus-wall-top-glow',
+      type: 'fill-extrusion',
+      source: fenkouFocusWallSourceId,
+      paint: {
+        'fill-extrusion-color': focusWallPalette.topGlow,
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          56,
+          16,
+          140,
+        ],
+        'fill-extrusion-base': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          49,
+          16,
+          126,
+        ],
+        'fill-extrusion-opacity': 0.58,
+        'fill-extrusion-vertical-gradient': false,
+      },
+    })
+  }
+
+  if (!map.getLayer('fenkou-focus-edge-shadow')) {
+    map.addLayer({
+      id: 'fenkou-focus-edge-shadow',
+      type: 'line',
       source: fenkouFocusSourceId,
       paint: {
-        'fill-extrusion-color': '#00e5ff',
-        'fill-extrusion-height': [
+        'line-color': focusWallPalette.edgeShadow,
+        'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
           13,
           24,
           16,
-          76,
+          40,
         ],
-        'fill-extrusion-base': 0,
-        'fill-extrusion-opacity': 0.24,
+        'line-opacity': 0.34,
+        'line-blur': 11,
+      },
+    })
+  }
+
+  if (!map.getLayer('fenkou-focus-bottom-glow')) {
+    map.addLayer({
+      id: 'fenkou-focus-bottom-glow',
+      type: 'line',
+      source: fenkouFocusSourceId,
+      paint: {
+        'line-color': focusWallPalette.bottomGlow,
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          3.2,
+          16,
+          5.4,
+        ],
+        'line-opacity': 0.96,
+        'line-blur': 0.35,
+      },
+    })
+  }
+
+  if (!map.getLayer('fenkou-focus-terrace-outer')) {
+    map.addLayer({
+      id: 'fenkou-focus-terrace-outer',
+      type: 'line',
+      source: fenkouFocusSourceId,
+      paint: {
+        'line-color': focusWallPalette.terraceOuter,
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          2.8,
+          16,
+          4.2,
+        ],
+        'line-opacity': 0.28,
+        'line-blur': 0.8,
+        'line-offset': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          7,
+          16,
+          14,
+        ],
+      },
+    })
+  }
+
+  if (!map.getLayer('fenkou-focus-terrace-mid')) {
+    map.addLayer({
+      id: 'fenkou-focus-terrace-mid',
+      type: 'line',
+      source: fenkouFocusSourceId,
+      paint: {
+        'line-color': focusWallPalette.terraceMid,
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          1.8,
+          16,
+          2.8,
+        ],
+        'line-opacity': 0.48,
+        'line-blur': 0.4,
+        'line-offset': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          4,
+          16,
+          8,
+        ],
+      },
+    })
+  }
+
+  if (!map.getLayer('fenkou-focus-terrace-inner')) {
+    map.addLayer({
+      id: 'fenkou-focus-terrace-inner',
+      type: 'line',
+      source: fenkouFocusSourceId,
+      paint: {
+        'line-color': focusWallPalette.terraceInner,
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          1.2,
+          16,
+          2,
+        ],
+        'line-opacity': 0.68,
+        'line-blur': 0.2,
+        'line-offset': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          13,
+          2,
+          16,
+          4,
+        ],
       },
     })
   }
@@ -581,18 +1062,18 @@ function addFenkouFocusLayers(map: maplibregl.Map, boundary: Coordinate[]) {
       type: 'line',
       source: fenkouFocusSourceId,
       paint: {
-        'line-color': '#00f5ff',
+        'line-color': focusWallPalette.outlineHalo,
         'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
           13,
-          18,
+          12,
           16,
-          30,
+          18,
         ],
-        'line-opacity': 0.46,
-        'line-blur': 8,
+        'line-opacity': 0.44,
+        'line-blur': 7,
       },
     })
   }
@@ -603,17 +1084,17 @@ function addFenkouFocusLayers(map: maplibregl.Map, boundary: Coordinate[]) {
       type: 'line',
       source: fenkouFocusSourceId,
       paint: {
-        'line-color': '#22d3ee',
+        'line-color': focusWallPalette.outlineGlow,
         'line-width': [
           'interpolate',
           ['linear'],
           ['zoom'],
           13,
-          7,
+          4.5,
           16,
-          12,
+          7,
         ],
-        'line-opacity': 0.9,
+        'line-opacity': 0.82,
         'line-blur': 2.2,
       },
     })
@@ -625,9 +1106,9 @@ function addFenkouFocusLayers(map: maplibregl.Map, boundary: Coordinate[]) {
       type: 'line',
       source: fenkouFocusSourceId,
       paint: {
-        'line-color': '#ecfeff',
-        'line-width': 2.2,
-        'line-opacity': 1,
+        'line-color': focusWallPalette.outline,
+        'line-width': 1.6,
+        'line-opacity': 0.86,
       },
     })
   }
@@ -692,124 +1173,58 @@ function findFirstSymbolLayerId(map: maplibregl.Map): string | undefined {
   return map.getStyle().layers.find((layer) => layer.type === 'symbol')?.id
 }
 
-function buildTiandituWmtsUrl(layer: 'vec' | 'cva'): string {
+function buildTiandituWmtsUrl(layer: 'img' | 'cia'): string {
   return `https://t0.tianditu.gov.cn/${layer}_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layer}&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${tiandituToken}`
 }
 
-function addTiandituDetailLayers(map: maplibregl.Map) {
-  if (
-    map.getSource(tiandituVectorSourceId) ||
-    map.getLayer(tiandituVectorLayerId)
-  ) {
-    return
-  }
-
-  map.addSource(tiandituVectorSourceId, {
-    type: 'raster',
-    tiles: [buildTiandituWmtsUrl('vec')],
-    tileSize: 256,
-    minzoom: tiandituMinZoom,
-    maxzoom: 18,
-    attribution: '© 天地图',
-  })
-  map.addSource(tiandituLabelSourceId, {
-    type: 'raster',
-    tiles: [buildTiandituWmtsUrl('cva')],
-    tileSize: 256,
-    minzoom: tiandituMinZoom,
-    maxzoom: 18,
-    attribution: '© 天地图',
-  })
-
-  const beforeLayerId = findFirstSymbolLayerId(map)
-
-  map.addLayer(
-    {
-      id: tiandituVectorLayerId,
+const tiandituSatelliteStyle: StyleSpecification = {
+  version: 8,
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+  sources: {
+    [tiandituSatelliteSourceId]: {
       type: 'raster',
-      source: tiandituVectorSourceId,
-      minzoom: tiandituMinZoom,
+      tiles: [buildTiandituWmtsUrl('img')],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 18,
+      attribution: '© 天地图',
+    },
+    [tiandituSatelliteLabelSourceId]: {
+      type: 'raster',
+      tiles: [buildTiandituWmtsUrl('cia')],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 18,
+      attribution: '© 天地图',
+    },
+  },
+  layers: [
+    {
+      id: tiandituSatelliteSourceId,
+      type: 'raster',
+      source: tiandituSatelliteSourceId,
       paint: {
-        'raster-opacity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          14,
-          0,
-          14.7,
-          0.28,
-          16,
-          0.42,
-          17,
-          0.5,
-        ],
-        'raster-saturation': -0.6,
-        'raster-contrast': 0.1,
-        'raster-brightness-min': 0,
-        'raster-brightness-max': 0.5,
-        'raster-hue-rotate': -10,
+        'raster-saturation': -0.08,
+        'raster-contrast': 0.08,
+        'raster-brightness-min': 0.02,
+        'raster-brightness-max': 0.78,
       },
     },
-    beforeLayerId,
-  )
-  map.addLayer(
     {
-      id: tiandituLabelLayerId,
+      id: tiandituSatelliteLabelSourceId,
       type: 'raster',
-      source: tiandituLabelSourceId,
-      minzoom: tiandituMinZoom,
+      source: tiandituSatelliteLabelSourceId,
       paint: {
-        'raster-opacity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          14,
-          0,
-          14.7,
-          0.35,
-          16,
-          0.55,
-          17,
-          0.65,
-        ],
-        'raster-saturation': -0.5,
-        'raster-contrast': 0.05,
+        'raster-opacity': 0.82,
+        'raster-saturation': -0.15,
+        'raster-contrast': 0.08,
         'raster-brightness-min': 0,
-        'raster-brightness-max': 0.6,
-        'raster-hue-rotate': -8,
+        'raster-brightness-max': 0.82,
       },
     },
-    beforeLayerId,
-  )
+  ],
 }
 
-function removeTiandituDetailLayers(map: maplibregl.Map) {
-  if (map.getLayer(tiandituLabelLayerId)) {
-    map.removeLayer(tiandituLabelLayerId)
-  }
-  if (map.getLayer(tiandituVectorLayerId)) {
-    map.removeLayer(tiandituVectorLayerId)
-  }
-  if (map.getSource(tiandituLabelSourceId)) {
-    map.removeSource(tiandituLabelSourceId)
-  }
-  if (map.getSource(tiandituVectorSourceId)) {
-    map.removeSource(tiandituVectorSourceId)
-  }
-}
-
-function syncTiandituDetailLayers(map: maplibregl.Map, showFocusMask: boolean) {
-  if (!map.isStyleLoaded()) {
-    return
-  }
-
-  if (showFocusMask && map.getZoom() > tiandituDetailZoomThreshold) {
-    addTiandituDetailLayers(map)
-    return
-  }
-
-  removeTiandituDetailLayers(map)
-}
 
 function addBuildingExtrusionLayer(map: maplibregl.Map) {
   const vectorSourceId = findVectorSourceId(map)
@@ -1097,7 +1512,7 @@ function addDistrictLayers(
   const siltationFeatures = districts.features.filter((f) => f.properties?.areaType === 'siltation')
   const inflowFeatures = districts.features.filter((f) => f.properties?.areaType === 'inflow')
 
-  // 普通区域图层 - 根据晴雨比显示蓝色深浅
+  // 普通区域图层 - 根据晴雨比显示深蓝色深浅
   if (normalFeatures.length > 0) {
     const normalGeoJson: FeatureCollection = {
       type: 'FeatureCollection',
@@ -1119,14 +1534,14 @@ function addDistrictLayers(
           ['linear'],
           ['coalesce', ['get', 'rainRatio'], 0],
           // 晴雨比范围 1.5 - 4.5+
-          1.8, 'rgba(99, 102, 241, 0.12)',   // 浅蓝紫
-          2.2, 'rgba(99, 102, 241, 0.18)',   // 浅蓝紫
-          2.6, 'rgba(79, 70, 229, 0.25)',    // 中蓝紫
-          3.0, 'rgba(67, 56, 202, 0.32)',    // 中深蓝紫
-          3.5, 'rgba(55, 48, 163, 0.40)',    // 深蓝紫
-          4.0, 'rgba(49, 46, 129, 0.50)',    // 很深蓝紫
+          1.8, 'rgba(15, 54, 94, 0.50)',
+          2.2, 'rgba(13, 70, 118, 0.56)',
+          2.6, 'rgba(10, 86, 145, 0.62)',
+          3.0, 'rgba(8, 104, 170, 0.68)',
+          3.5, 'rgba(7, 82, 140, 0.74)',
+          4.0, 'rgba(6, 64, 113, 0.80)',
         ],
-        'fill-opacity': 1,
+        'fill-opacity': 0.96,
       },
     })
 
@@ -1139,15 +1554,15 @@ function addDistrictLayers(
           'interpolate',
           ['linear'],
           ['coalesce', ['get', 'rainRatio'], 0],
-          1.8, 'rgba(129, 140, 248, 0.5)',   // 浅轮廓
-          2.2, 'rgba(129, 140, 248, 0.6)',
-          2.6, 'rgba(109, 109, 224, 0.7)',    // 中轮廓
-          3.0, 'rgba(99, 102, 241, 0.75)',
-          3.5, 'rgba(91, 87, 204, 0.8)',
-          4.0, 'rgba(79, 70, 229, 0.9)',      // 深轮廓
+          1.8, 'rgba(147, 197, 253, 0.74)',
+          2.2, 'rgba(96, 165, 250, 0.80)',
+          2.6, 'rgba(59, 130, 246, 0.86)',
+          3.0, 'rgba(37, 99, 235, 0.90)',
+          3.5, 'rgba(29, 78, 216, 0.94)',
+          4.0, 'rgba(30, 64, 175, 0.96)',
         ],
-        'line-width': 1.5,
-        'line-opacity': 0.8,
+        'line-width': 1.8,
+        'line-opacity': 0.94,
         'line-dasharray': [4, 4],
       },
     })
@@ -1406,18 +1821,18 @@ function addDistrictLayers(
       data: rainAlertGeoJson,
     })
 
-    // 蓝色填充层 - 用于呼吸动画（深色表示警戒）
+    // 深蓝色填充层 - 用于呼吸动画（深色表示警戒）
     map.addLayer({
       id: 'rain-alert-fill',
       type: 'fill',
       source: rainAlertSourceId,
       paint: {
-        'fill-color': 'rgb(49, 46, 129)',
-        'fill-opacity': 0.7,
+        'fill-color': 'rgb(8, 64, 113)',
+        'fill-opacity': 0.78,
       },
     })
 
-    console.log('[降雨特效] 蓝色填充层已创建')
+    console.log('[降雨特效] 深蓝色填充层已创建')
 
     // 降雨效果边框
     map.addLayer({
@@ -1425,7 +1840,7 @@ function addDistrictLayers(
       type: 'line',
       source: rainAlertSourceId,
       paint: {
-        'line-color': 'rgb(43, 40, 109)',
+        'line-color': 'rgb(96, 165, 250)',
         'line-width': 2.5,
         'line-opacity': 0.85,
       },
@@ -1515,7 +1930,7 @@ export function useMapLibre({
   const isFocusMaskVisibleRef = useRef(showFocusMask)
   const geoJsonDataset = useMemo(() => buildDrainageGeoJson(dataset), [dataset])
 
-  // 创建切换演示边界的函数（始终使用 fiord 原始样式）
+  // 创建切换演示边界的函数
   const createToggleFocusMask = (map: maplibregl.Map) => {
     return (show: boolean) => {
       const closeAllPopups = () => {
@@ -1535,10 +1950,21 @@ export function useMapLibre({
       } else {
         // 隐藏汾口镇演示边界。
         const layersToRemove = [
-          'fenkou-focus-wall',
-          'fenkou-focus-outline-halo',
-          'fenkou-focus-outline-glow',
           'fenkou-focus-outline',
+          'fenkou-focus-outline-glow',
+          'fenkou-focus-outline-halo',
+          'fenkou-focus-terrace-inner',
+          'fenkou-focus-terrace-mid',
+          'fenkou-focus-terrace-outer',
+          'fenkou-focus-bottom-glow',
+          'fenkou-focus-edge-shadow',
+          'fenkou-focus-wall-top-glow',
+          'fenkou-focus-wall-top-band',
+          'fenkou-focus-wall-inner-glow',
+          'fenkou-focus-wall',
+          'fenkou-focus-wall-depth',
+          ...focusMaskBands.map((maskBand) => maskBand.id),
+          'fenkou-focus-outside-mask',
         ]
         for (const layerId of layersToRemove) {
           if (map.getLayer(layerId)) {
@@ -1548,9 +1974,13 @@ export function useMapLibre({
         if (map.getSource(fenkouFocusSourceId)) {
           map.removeSource(fenkouFocusSourceId)
         }
+        if (map.getSource(fenkouFocusMaskSourceId)) {
+          map.removeSource(fenkouFocusMaskSourceId)
+        }
+        if (map.getSource(fenkouFocusWallSourceId)) {
+          map.removeSource(fenkouFocusWallSourceId)
+        }
       }
-
-      syncTiandituDetailLayers(map, show)
 
       // 关闭所有弹窗
       closeAllPopups()
@@ -1589,7 +2019,7 @@ export function useMapLibre({
 
     const map = new maplibregl.Map({
       container,
-      style: fiordStyleUrl,
+      style: tiandituSatelliteStyle,
       center: dataset.center,
       zoom: initialZoom,
       pitch: mapPitch,
@@ -1624,7 +2054,6 @@ export function useMapLibre({
         addFenkouFocusLayers(map, dataset.focusBoundary)
       }
       isFocusMaskVisibleRef.current = showFocusMask
-      syncTiandituDetailLayers(map, showFocusMask)
       addWaterwayLayers(map, geoJsonDataset)
       addDrainageLayers(map, geoJsonDataset)
       siteMarkersRef.current = addMonitoringSiteMarkers(
@@ -1749,7 +2178,6 @@ export function useMapLibre({
     map.once('load', handleLoad)
     const handleZoom = () => {
       updateSiteMarkerScale(map, siteMarkersRef.current)
-      syncTiandituDetailLayers(map, isFocusMaskVisibleRef.current)
     }
 
     const handleZoomEnd = () => logMapZoom(map)
